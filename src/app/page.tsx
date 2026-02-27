@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, TerminalSquare, AlertCircle, RefreshCw, Layers, Zap, Lock } from "lucide-react";
+import { Sparkles, TerminalSquare, AlertCircle, RefreshCw, Layers, Zap, Lock, Play, Download } from "lucide-react";
 import { FileUpload } from "@/components/FileUpload";
 import { MetadataGrid } from "@/components/MetadataGrid";
 import { CodePreview } from "@/components/CodePreview";
+import { usePyodide } from "@/hooks/usePyodide";
 import type { FileMetadata } from "@/types";
 
 export default function Home() {
@@ -14,6 +15,9 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Pyodide Integration
+  const { runPython, isInitializing: pyInitializing, isRunning: pyRunning, error: pyError } = usePyodide();
 
   const handleGenerate = async () => {
     if (!metadata || !prompt.trim()) return;
@@ -48,6 +52,28 @@ export default function Home() {
     setPrompt("");
     setGeneratedCode(null);
     setError(null);
+  };
+
+  const handleRunCode = async () => {
+    if (!metadata?.rawBuffer || !generatedCode) return;
+
+    const result = await runPython({
+      code: generatedCode,
+      fileBuffer: metadata.rawBuffer,
+      fileName: metadata.filename,
+    });
+
+    if (result.outBuffer) {
+      const blob = new Blob([result.outBuffer as any], { type: "application/octet-stream" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.outPath?.split('/').pop() || "output_data.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -212,6 +238,43 @@ export default function Home() {
                         <div className="p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3 text-red-700 dark:text-red-400 text-sm mt-2">
                           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                           <p className="font-medium">{error}</p>
+                        </div>
+                      )}
+
+                      {/* Pyodide Run Button */}
+                      {generatedCode && language === "python" && (
+                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 animate-in fade-in slide-in-from-bottom-2">
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Execute Locally</h3>
+                          <button
+                            onClick={handleRunCode}
+                            disabled={pyRunning || pyInitializing}
+                            className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-base font-semibold shadow-md transition-all flex items-center justify-center gap-3"
+                          >
+                            {pyRunning ? (
+                              <>
+                                <RefreshCw className="w-5 h-5 animate-spin" />
+                                Processing Data in Browser...
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-5 h-5" />
+                                Run Action & Download Result
+                              </>
+                            )}
+                          </button>
+
+                          {pyError && (
+                            <div className="p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3 text-red-700 dark:text-red-400 text-sm mt-3">
+                              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                              <p className="font-medium font-mono whitespace-pre-wrap">{pyError}</p>
+                            </div>
+                          )}
+                          {pyInitializing && (
+                            <p className="text-xs text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              Initializing isolated Python environment...
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>

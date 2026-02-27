@@ -16,20 +16,21 @@ export async function POST(req: Request) {
         if (language === "python") {
             generatedCode = `import pandas as pd
 import numpy as np
-import logging
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+# In Pyodide, INPUT_FILE_PATH is provided globally by the Web Worker.
 def process_file(file_path: str, output_path: str):
     """
     Automated processing script for: ${metadata?.filename || "data.xlsx"}
     User requested: ${prompt}
     """
     try:
-        logging.info(f"Loading data from {file_path}")
-        # Note: Datatypes inferred from metadata
-        df = pd.read_excel(file_path)
+        print(f"Loading data from {file_path}")
+        
+        # Determine how to read the file based on extension
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_excel(file_path)
         
         # ---------------------------------------------------------
         # AI Generated Transformation Logic Based on User Prompt
@@ -45,17 +46,24 @@ def process_file(file_path: str, output_path: str):
         for col in string_cols:
             df[col] = df[col].fillna('').astype(str).str.strip()
             
-        # Write output
-        logging.info(f"Writing transformed data to {output_path}")
-        df.to_excel(output_path, index=False)
-        logging.info("Processing complete.")
+        # Write output (Ensure it saves to /tmp/output_data.csv for the web worker to fetch)
+        print(f"Writing transformed data to {output_path}")
+        
+        # We output to CSV by default for easier browser handling, but Excel works too
+        df.to_csv(output_path, index=False)
+        print("Processing complete!")
         
     except Exception as e:
-        logging.error(f"Error processing file: {str(e)}")
+        print(f"Error processing file: {str(e)}")
         raise
 
 if __name__ == "__main__":
-    process_file("input.xlsx", "output.xlsx")
+    # Ensure it uses the dynamic file path injected by Pyodide, and writes to the expected output path
+    # If not running in Pyodide, it defaults to local paths
+    input_path = globals().get('INPUT_FILE_PATH', 'input.xlsx')
+    output_path = '/tmp/output_data.csv' if 'INPUT_FILE_PATH' in globals() else 'output_data.csv'
+    
+    process_file(input_path, output_path)
 `;
         } else {
             generatedCode = `Option Explicit

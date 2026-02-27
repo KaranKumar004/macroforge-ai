@@ -65,6 +65,7 @@ export function FileUpload({ onFileParsed }: FileUploadProps) {
                         size: file.size,
                         sheetNames: workbook.SheetNames,
                         columns,
+                        rawBuffer: e.target?.result as ArrayBuffer,
                     });
                 } catch (err: any) {
                     setError(err.message || "Failed to process the file.");

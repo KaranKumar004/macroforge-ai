@@ -9,4 +9,5 @@ export interface FileMetadata {
     size: number;
     sheetNames: string[];
     columns: ColumnMetadata[];
+    rawBuffer: ArrayBuffer;
 }
