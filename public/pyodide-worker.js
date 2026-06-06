@@ -5,7 +5,14 @@ importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js");
 let pyodideReadyPromise;
 
 async function loadPyodideAndPackages() {
-    self.pyodide = await loadPyodide();
+    self.pyodide = await loadPyodide({
+        stdout: (text) => {
+            self.postMessage({ type: "PY_LOG", log: text });
+        },
+        stderr: (text) => {
+            self.postMessage({ type: "PY_ERR", log: text });
+        }
+    });
     await self.pyodide.loadPackage(["micropip", "pandas", "openpyxl"]);
     return self.pyodide;
 }

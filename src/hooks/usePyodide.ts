@@ -17,17 +17,28 @@ export function usePyodide() {
     const [isInitializing, setIsInitializing] = useState(true);
     const [isRunning, setIsRunning] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [logs, setLogs] = useState<string[]>([]);
 
     useEffect(() => {
         // Initialize the Web Worker only on the client side
-        workerRef.current = new Worker('/pyodide-worker.js');
+        const worker = new Worker('/pyodide-worker.js');
+        workerRef.current = worker;
 
-        // We can assume it starts downloading Pyodide immediately.
-        // In a fully production app, we might wait for an "INIT_DONE" message.
+        const handleWorkerMessage = (event: MessageEvent) => {
+            const { type, log } = event.data;
+            if (type === 'PY_LOG') {
+                setLogs((prev) => [...prev, log]);
+            } else if (type === 'PY_ERR') {
+                setLogs((prev) => [...prev, `❌ ${log}`]);
+            }
+        };
+
+        worker.addEventListener('message', handleWorkerMessage);
         setIsInitializing(false);
 
         return () => {
-            workerRef.current?.terminate();
+            worker.removeEventListener('message', handleWorkerMessage);
+            worker.terminate();
         };
     }, []);
 
@@ -40,6 +51,7 @@ export function usePyodide() {
 
             setIsRunning(true);
             setError(null);
+            setLogs([]); // Clear logs at the beginning of a run
 
             const messageId = Date.now().toString();
 
@@ -69,5 +81,5 @@ export function usePyodide() {
         });
     }, []);
 
-    return { runPython, isInitializing, isRunning, error };
+    return { runPython, isInitializing, isRunning, error, logs, clearLogs: () => setLogs([]) };
 }

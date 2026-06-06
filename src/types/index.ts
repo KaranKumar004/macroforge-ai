@@ -8,6 +8,7 @@ export interface FileMetadata {
     filename: string;
     size: number;
     sheetNames: string[];
+    activeSheet?: string;
     columns: ColumnMetadata[];
     rawBuffer: ArrayBuffer;
 }

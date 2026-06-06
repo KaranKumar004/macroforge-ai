@@ -64,6 +64,7 @@ export function FileUpload({ onFileParsed }: FileUploadProps) {
                         filename: file.name,
                         size: file.size,
                         sheetNames: workbook.SheetNames,
+                        activeSheet: firstSheetName,
                         columns,
                         rawBuffer: e.target?.result as ArrayBuffer,
                     });

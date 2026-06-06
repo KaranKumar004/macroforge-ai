@@ -6,12 +6,13 @@ import type { FileMetadata } from "@/types";
 
 interface MetadataGridProps {
     metadata: FileMetadata;
+    onSheetChange?: (sheetName: string) => void;
 }
 
-export function MetadataGrid({ metadata }: MetadataGridProps) {
+export function MetadataGrid({ metadata, onSheetChange }: MetadataGridProps) {
     return (
         <div className="glass-panel w-full overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="p-5 border-b border-gray-200/50 dark:border-gray-800/50 flex items-center justify-between bg-white/5">
+            <div className="p-5 border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col sm:flex-row sm:items-center justify-between bg-white/5 gap-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-brand-500/10 rounded-lg">
                         <FileSpreadsheet className="w-5 h-5 text-brand-500" />
@@ -26,15 +27,33 @@ export function MetadataGrid({ metadata }: MetadataGridProps) {
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                    <span className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/50 px-3 py-1.5 rounded-full">
-                        <TableProperties className="w-4 h-4" />
+                <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                    <span className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/50 px-3 py-1.5 rounded-full text-xs font-semibold">
+                        <TableProperties className="w-3.5 h-3.5 text-brand-500" />
                         {metadata.columns.length} Columns
                     </span>
-                    <span className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/50 px-3 py-1.5 rounded-full">
-                        <Database className="w-4 h-4" />
-                        {metadata.sheetNames.length} Sheets
-                    </span>
+                    
+                    {metadata.sheetNames.length > 1 ? (
+                        <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/50 px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700/50 focus-within:border-brand-500 transition-colors">
+                            <Database className="w-3.5 h-3.5 text-purple-500" />
+                            <select
+                                value={metadata.activeSheet || metadata.sheetNames[0]}
+                                onChange={(e) => onSheetChange?.(e.target.value)}
+                                className="bg-transparent text-xs text-gray-700 dark:text-gray-300 outline-none pr-1 cursor-pointer font-semibold py-1 focus:ring-0"
+                            >
+                                {metadata.sheetNames.map((sheet, index) => (
+                                    <option key={index} value={sheet} className="dark:bg-[#09090b]">
+                                        Sheet: {sheet}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : (
+                        <span className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/50 px-3 py-1.5 rounded-full text-xs font-semibold">
+                            <Database className="w-3.5 h-3.5 text-purple-500" />
+                            {metadata.sheetNames[0] || "1 Sheet"}
+                        </span>
+                    )}
                 </div>
             </div>
 
