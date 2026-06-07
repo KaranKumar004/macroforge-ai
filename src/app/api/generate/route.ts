@@ -92,18 +92,11 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                                     role: "user",
                                     parts: [
                                         {
-                                            text: `${schemaText}\n\n${sampleText}\n\nUser Request: ${prompt}\n\nPlease generate the corresponding script code.`,
+                                            text: `${systemPrompt}\n\n${schemaText}\n\n${sampleText}\n\nUser Request: ${prompt}\n\nPlease generate the corresponding script code.`,
                                         },
                                     ],
                                 },
                             ],
-                            systemInstruction: {
-                                parts: [
-                                    {
-                                        text: systemPrompt,
-                                    },
-                                ],
-                            },
                             generationConfig: {
                                 temperature: 0.1,
                             },
