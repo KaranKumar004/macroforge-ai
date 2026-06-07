@@ -55,7 +55,10 @@ ${language === "vba" ? `IMPORTANT RULES FOR VBA:
 Provide ONLY the clean code block without markdown tags. Do not write introductory or concluding conversational text. Include comments indicating the task checklist status.`;
 
         // 3. Connect to live Gemini API if API key is present in environment
-        const geminiApiKey = process.env.GEMINI_API_KEY;
+        let geminiApiKey = process.env.GEMINI_API_KEY;
+        if (geminiApiKey) {
+            geminiApiKey = geminiApiKey.replace(/['"\s]/g, "");
+        }
         console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
         console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
         
