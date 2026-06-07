@@ -56,6 +56,7 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
 
         // 3. Connect to live Gemini API if API key is present in environment
         const geminiApiKey = process.env.GEMINI_API_KEY;
+        console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
         if (geminiApiKey) {
             try {
                 let modelName = isProModel ? "gemini-1.5-pro" : "gemini-1.5-flash";
