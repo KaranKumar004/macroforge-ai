@@ -71,12 +71,63 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
         console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
         
         if (geminiApiKey) {
+            // Run a quick diagnostic to check which models are actually authorized for this key
+            try {
+                const listUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+                const listRes = await fetch(listUrl, {
+                    method: "GET",
+                    headers: {
+                        "x-goog-api-key": geminiApiKey,
+                    }
+                });
+                if (listRes.ok) {
+                    const listData = await listRes.json();
+                    const modelNames = listData.models?.map((m: any) => m.name) || [];
+                    console.log("[Diagnostic] ListModels (Header v1beta) Success. Models count:", modelNames.length, "Models:", modelNames);
+                } else {
+                    const errText = await listRes.text();
+                    console.warn(`[Diagnostic] ListModels (Header v1beta) Failed with status ${listRes.status}: ${errText}`);
+                }
+            } catch (listErr) {
+                console.error("[Diagnostic] ListModels (Header v1beta) Crashed:", listErr);
+            }
+
+            try {
+                const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
+                const listRes = await fetch(listUrl);
+                if (listRes.ok) {
+                    const listData = await listRes.json();
+                    const modelNames = listData.models?.map((m: any) => m.name) || [];
+                    console.log("[Diagnostic] ListModels (Query v1beta) Success. Models count:", modelNames.length, "Models:", modelNames);
+                } else {
+                    const errText = await listRes.text();
+                    console.warn(`[Diagnostic] ListModels (Query v1beta) Failed with status ${listRes.status}: ${errText}`);
+                }
+            } catch (listErr) {
+                console.error("[Diagnostic] ListModels (Query v1beta) Crashed:", listErr);
+            }
+
             // Define list of model endpoints to try in order of preference
             const attempts = [
-                { version: "v1", model: "gemini-1.5-pro", label: "Gemini 1.5 Pro (v1)" },
-                { version: "v1", model: "gemini-1.5-flash", label: "Gemini 1.5 Flash (v1)" },
-                { version: "v1beta", model: "gemini-1.5-flash", label: "Gemini 1.5 Flash (v1beta)" },
-                { version: "v1", model: "gemini-pro", label: "Gemini 1.0 Pro (v1 Legacy)" }
+                // 2.0 Flash
+                { version: "v1beta", model: "gemini-2.0-flash", useHeader: true, label: "Gemini 2.0 Flash (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-2.0-flash", useHeader: false, label: "Gemini 2.0 Flash (v1beta, Query)" },
+                
+                // 1.5 Pro
+                { version: "v1beta", model: "gemini-1.5-pro", useHeader: true, label: "Gemini 1.5 Pro (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-1.5-pro", useHeader: false, label: "Gemini 1.5 Pro (v1beta, Query)" },
+                { version: "v1", model: "gemini-1.5-pro", useHeader: true, label: "Gemini 1.5 Pro (v1, Header)" },
+                { version: "v1", model: "gemini-1.5-pro", useHeader: false, label: "Gemini 1.5 Pro (v1, Query)" },
+                
+                // 1.5 Flash
+                { version: "v1beta", model: "gemini-1.5-flash", useHeader: true, label: "Gemini 1.5 Flash (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-1.5-flash", useHeader: false, label: "Gemini 1.5 Flash (v1beta, Query)" },
+                { version: "v1", model: "gemini-1.5-flash", useHeader: true, label: "Gemini 1.5 Flash (v1, Header)" },
+                { version: "v1", model: "gemini-1.5-flash", useHeader: false, label: "Gemini 1.5 Flash (v1, Query)" },
+                
+                // Legacy
+                { version: "v1", model: "gemini-pro", useHeader: true, label: "Gemini 1.0 Pro (v1 Legacy, Header)" },
+                { version: "v1", model: "gemini-pro", useHeader: false, label: "Gemini 1.0 Pro (v1 Legacy, Query)" }
             ];
 
             // If they didn't choose the Pro model, start directly with Flash to save latency
@@ -86,14 +137,22 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
 
             for (const attempt of activeAttempts) {
                 try {
-                    const apiUrl = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
+                    const apiUrl = attempt.useHeader
+                        ? `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent`
+                        : `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
+                    
                     console.log(`[Diagnostic] Attempting generation using: ${attempt.label}`);
+
+                    const headers: HeadersInit = {
+                        "Content-Type": "application/json",
+                    };
+                    if (attempt.useHeader) {
+                        headers["x-goog-api-key"] = geminiApiKey;
+                    }
 
                     const apiResponse = await fetch(apiUrl, {
                         method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
+                        headers,
                         body: JSON.stringify({
                             contents: [
                                 {
