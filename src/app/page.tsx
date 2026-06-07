@@ -18,6 +18,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
 
   // Pyodide Integration
   const { runPython, isInitializing: pyInitializing, isRunning: pyRunning, error: pyError, logs, clearLogs } = usePyodide();
@@ -129,6 +130,7 @@ export default function Home() {
     setIsGenerating(true);
     setError(null);
     setGeneratedCode(null);
+    setDiagnostics([]);
 
     try {
       const response = await fetch("/api/generate", {
@@ -138,6 +140,9 @@ export default function Home() {
       });
 
       const data = await response.json();
+      if (data.diagnostics) {
+        setDiagnostics(data.diagnostics);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || "Generation failed");
@@ -161,6 +166,7 @@ export default function Home() {
     setPrompt("");
     setGeneratedCode(null);
     setError(null);
+    setDiagnostics([]);
     clearLogs();
   };
 
@@ -429,6 +435,26 @@ export default function Home() {
                         <div className="p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3 text-red-700 dark:text-red-400 text-sm mt-2">
                           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                           <p className="font-semibold">{error}</p>
+                        </div>
+                      )}
+
+                      {/* Diagnostic Logs Disclosure */}
+                      {diagnostics.length > 0 && (
+                        <div className="mt-3 p-4 rounded-xl bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 text-sm">
+                          <details className="group">
+                            <summary className="font-semibold text-gray-700 dark:text-gray-300 cursor-pointer select-none flex items-center justify-between">
+                              <span>API Diagnostic Logs ({diagnostics.length} lines)</span>
+                              <span className="text-xs text-brand-500 group-open:hidden hover:underline">Show Logs</span>
+                              <span className="text-xs text-brand-500 hidden group-open:inline hover:underline">Hide Logs</span>
+                            </summary>
+                            <div className="mt-3 font-mono text-[11px] text-gray-600 dark:text-gray-400 max-h-60 overflow-y-auto whitespace-pre-wrap bg-white dark:bg-black/60 p-3 rounded-lg border border-gray-200 dark:border-gray-800 flex flex-col gap-1.5 shadow-inner">
+                              {diagnostics.map((log, idx) => (
+                                <div key={idx} className={log.includes("Failed") || log.includes("Crashed") || log.includes("failed") ? "text-red-500 dark:text-red-400" : log.includes("successful") || log.includes("Success") ? "text-emerald-600 dark:text-emerald-400 font-semibold" : ""}>
+                                  {log}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
                         </div>
                       )}
 

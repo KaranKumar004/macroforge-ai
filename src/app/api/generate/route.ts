@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
+    const diagnosticLogs: string[] = [];
+    const logDiag = (msg: string) => {
+        console.log(msg);
+        diagnosticLogs.push(msg);
+    };
+    const warnDiag = (msg: string, detail?: string) => {
+        const fullMsg = msg + (detail ? ` ${detail}` : "");
+        console.warn(fullMsg);
+        diagnosticLogs.push(fullMsg);
+    };
+
     try {
         const { prompt, metadata, language, isProModel } = await req.json();
 
@@ -66,9 +77,9 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
         
         const keyPrefix = geminiApiKey ? geminiApiKey.substring(0, 8) : "NONE";
         const keySuffix = geminiApiKey ? geminiApiKey.substring(geminiApiKey.length - 4) : "NONE";
-        console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
-        console.log(`[Diagnostic] Key Details - Prefix: ${keyPrefix}, Suffix: ${keySuffix}`);
-        console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
+        logDiag(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
+        logDiag(`[Diagnostic] Key Details - Prefix: ${keyPrefix}, Suffix: ${keySuffix}`);
+        logDiag(`[Diagnostic] Mapped Env Keys: ${JSON.stringify(Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"))}`);
         
         if (geminiApiKey) {
             // Run a quick diagnostic to check which models are actually authorized for this key
@@ -83,13 +94,13 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                 if (listRes.ok) {
                     const listData = await listRes.json();
                     const modelNames = listData.models?.map((m: any) => m.name) || [];
-                    console.log("[Diagnostic] ListModels (Header v1beta) Success. Models count:", modelNames.length, "Models:", modelNames);
+                    logDiag(`[Diagnostic] ListModels (Header v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
                 } else {
                     const errText = await listRes.text();
-                    console.warn(`[Diagnostic] ListModels (Header v1beta) Failed with status ${listRes.status}: ${errText}`);
+                    warnDiag(`[Diagnostic] ListModels (Header v1beta) Failed with status ${listRes.status}:`, errText);
                 }
-            } catch (listErr) {
-                console.error("[Diagnostic] ListModels (Header v1beta) Crashed:", listErr);
+            } catch (listErr: any) {
+                warnDiag(`[Diagnostic] ListModels (Header v1beta) Crashed:`, listErr?.message || String(listErr));
             }
 
             try {
@@ -98,13 +109,13 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                 if (listRes.ok) {
                     const listData = await listRes.json();
                     const modelNames = listData.models?.map((m: any) => m.name) || [];
-                    console.log("[Diagnostic] ListModels (Query v1beta) Success. Models count:", modelNames.length, "Models:", modelNames);
+                    logDiag(`[Diagnostic] ListModels (Query v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
                 } else {
                     const errText = await listRes.text();
-                    console.warn(`[Diagnostic] ListModels (Query v1beta) Failed with status ${listRes.status}: ${errText}`);
+                    warnDiag(`[Diagnostic] ListModels (Query v1beta) Failed with status ${listRes.status}:`, errText);
                 }
-            } catch (listErr) {
-                console.error("[Diagnostic] ListModels (Query v1beta) Crashed:", listErr);
+            } catch (listErr: any) {
+                warnDiag(`[Diagnostic] ListModels (Query v1beta) Crashed:`, listErr?.message || String(listErr));
             }
 
             // Define list of model endpoints to try in order of preference
@@ -141,7 +152,7 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                         ? `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent`
                         : `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
                     
-                    console.log(`[Diagnostic] Attempting generation using: ${attempt.label}`);
+                    logDiag(`[Diagnostic] Attempting generation using: ${attempt.label}`);
 
                     const headers: HeadersInit = {
                         "Content-Type": "application/json",
@@ -182,21 +193,23 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                             }
                         }
 
-                        console.log(`[Diagnostic] Generation successful using: ${attempt.label}`);
+                        logDiag(`[Diagnostic] Generation successful using: ${attempt.label}`);
                         return NextResponse.json({
                             success: true,
                             code: code.trim(),
                             tier: attempt.label,
+                            isFallback: false,
+                            diagnostics: diagnosticLogs,
                         });
                     } else {
                         const errBody = await apiResponse.text();
-                        console.warn(`[Diagnostic] ${attempt.label} failed with status ${apiResponse.status}: ${errBody}`);
+                        warnDiag(`[Diagnostic] ${attempt.label} failed with status ${apiResponse.status}:`, errBody);
                     }
-                } catch (err) {
-                    console.warn(`[Diagnostic] ${attempt.label} fetch crashed:`, err);
+                } catch (err: any) {
+                    warnDiag(`[Diagnostic] ${attempt.label} fetch crashed:`, err?.message || String(err));
                 }
             }
-            console.error("[Diagnostic] All live Gemini model endpoints failed. Falling back to offline simulator.");
+            warnDiag("[Diagnostic] All live Gemini model endpoints failed. Falling back to offline simulator.");
         }
 
         // 4. FALLBACK ENGINE (Smart rule-based simulation formatted according to developer rules)
@@ -481,11 +494,17 @@ End Sub
             success: true,
             code: generatedCode,
             tier: isProModel ? "Pro" : "Standard",
+            isFallback: true,
+            diagnostics: diagnosticLogs,
         });
     } catch (error: any) {
         console.error("API error:", error);
         return NextResponse.json(
-            { success: false, error: "Failed to generate code." },
+            { 
+                success: false, 
+                error: error?.message || "Failed to generate code.",
+                diagnostics: diagnosticLogs
+            },
             { status: 500 }
         );
     }
