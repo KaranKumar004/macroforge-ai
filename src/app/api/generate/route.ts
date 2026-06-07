@@ -63,7 +63,11 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                 geminiApiKey = geminiApiKey.split("GEMINI_API_KEY=")[1];
             }
         }
+        
+        const keyPrefix = geminiApiKey ? geminiApiKey.substring(0, 8) : "NONE";
+        const keySuffix = geminiApiKey ? geminiApiKey.substring(geminiApiKey.length - 4) : "NONE";
         console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
+        console.log(`[Diagnostic] Key Details - Prefix: ${keyPrefix}, Suffix: ${keySuffix}`);
         console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
         
         if (geminiApiKey) {
