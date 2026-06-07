@@ -120,25 +120,37 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
 
             // Define list of model endpoints to try in order of preference
             const attempts = [
+                // 2.5 Flash (Modern Standard)
+                { version: "v1beta", model: "gemini-2.5-flash", useHeader: true, label: "Gemini 2.5 Flash (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-2.5-flash", useHeader: false, label: "Gemini 2.5 Flash (v1beta, Query)" },
+                
+                // Flash Latest (Generic mapping)
+                { version: "v1beta", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1beta, Query)" },
+                { version: "v1", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1, Header)" },
+                { version: "v1", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1, Query)" },
+
                 // 2.0 Flash
                 { version: "v1beta", model: "gemini-2.0-flash", useHeader: true, label: "Gemini 2.0 Flash (v1beta, Header)" },
                 { version: "v1beta", model: "gemini-2.0-flash", useHeader: false, label: "Gemini 2.0 Flash (v1beta, Query)" },
-                
-                // 1.5 Pro
-                { version: "v1beta", model: "gemini-1.5-pro", useHeader: true, label: "Gemini 1.5 Pro (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-1.5-pro", useHeader: false, label: "Gemini 1.5 Pro (v1beta, Query)" },
-                { version: "v1", model: "gemini-1.5-pro", useHeader: true, label: "Gemini 1.5 Pro (v1, Header)" },
-                { version: "v1", model: "gemini-1.5-pro", useHeader: false, label: "Gemini 1.5 Pro (v1, Query)" },
-                
-                // 1.5 Flash
-                { version: "v1beta", model: "gemini-1.5-flash", useHeader: true, label: "Gemini 1.5 Flash (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-1.5-flash", useHeader: false, label: "Gemini 1.5 Flash (v1beta, Query)" },
-                { version: "v1", model: "gemini-1.5-flash", useHeader: true, label: "Gemini 1.5 Flash (v1, Header)" },
-                { version: "v1", model: "gemini-1.5-flash", useHeader: false, label: "Gemini 1.5 Flash (v1, Query)" },
-                
-                // Legacy
-                { version: "v1", model: "gemini-pro", useHeader: true, label: "Gemini 1.0 Pro (v1 Legacy, Header)" },
-                { version: "v1", model: "gemini-pro", useHeader: false, label: "Gemini 1.0 Pro (v1 Legacy, Query)" }
+
+                // 3.5 Flash
+                { version: "v1beta", model: "gemini-3.5-flash", useHeader: true, label: "Gemini 3.5 Flash (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-3.5-flash", useHeader: false, label: "Gemini 3.5 Flash (v1beta, Query)" },
+
+                // 3.1 Flash Lite
+                { version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: true, label: "Gemini 3.1 Flash Lite (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: false, label: "Gemini 3.1 Flash Lite (v1beta, Query)" },
+
+                // 2.5 Pro
+                { version: "v1beta", model: "gemini-2.5-pro", useHeader: true, label: "Gemini 2.5 Pro (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-2.5-pro", useHeader: false, label: "Gemini 2.5 Pro (v1beta, Query)" },
+
+                // Pro Latest
+                { version: "v1beta", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1beta, Header)" },
+                { version: "v1beta", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1beta, Query)" },
+                { version: "v1", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1, Header)" },
+                { version: "v1", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1, Query)" }
             ];
 
             // If they didn't choose the Pro model, start directly with Flash to save latency
