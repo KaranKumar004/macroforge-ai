@@ -58,6 +58,10 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
         let geminiApiKey = process.env.GEMINI_API_KEY;
         if (geminiApiKey) {
             geminiApiKey = geminiApiKey.replace(/['"\s]/g, "");
+            // Extract key if pasted with prefix "GEMINI_API_KEY="
+            if (geminiApiKey.includes("GEMINI_API_KEY=")) {
+                geminiApiKey = geminiApiKey.split("GEMINI_API_KEY=")[1];
+            }
         }
         console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
         console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
