@@ -58,46 +58,27 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
         const geminiApiKey = process.env.GEMINI_API_KEY;
         console.log(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
         console.log("[Diagnostic] Mapped Env Keys:", Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"));
+        
         if (geminiApiKey) {
-            try {
-                let modelName = isProModel ? "gemini-1.5-pro" : "gemini-1.5-flash";
-                let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+            // Define list of model endpoints to try in order of preference
+            const attempts = [
+                { version: "v1", model: "gemini-1.5-pro", label: "Gemini 1.5 Pro (v1)" },
+                { version: "v1", model: "gemini-1.5-flash", label: "Gemini 1.5 Flash (v1)" },
+                { version: "v1beta", model: "gemini-1.5-flash", label: "Gemini 1.5 Flash (v1beta)" },
+                { version: "v1", model: "gemini-pro", label: "Gemini 1.0 Pro (v1 Legacy)" }
+            ];
 
-                let apiResponse = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        contents: [
-                            {
-                                role: "user",
-                                parts: [
-                                    {
-                                        text: `${schemaText}\n\n${sampleText}\n\nUser Request: ${prompt}\n\nPlease generate the corresponding script code.`,
-                                    },
-                                ],
-                            },
-                        ],
-                        systemInstruction: {
-                            parts: [
-                                {
-                                    text: systemPrompt,
-                                },
-                            ],
-                        },
-                        generationConfig: {
-                            temperature: 0.1,
-                        },
-                    }),
-                });
+            // If they didn't choose the Pro model, start directly with Flash to save latency
+            const activeAttempts = isProModel 
+                ? attempts 
+                : attempts.filter(a => a.model.includes("flash") || a.model.includes("legacy"));
 
-                // Auto fallback to gemini-1.5-flash if gemini-1.5-pro is 404 not found
-                if (!apiResponse.ok && apiResponse.status === 404 && modelName === "gemini-1.5-pro") {
-                    console.warn("models/gemini-1.5-pro was not found. Retrying with models/gemini-1.5-flash...");
-                    modelName = "gemini-1.5-flash";
-                    apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-                    apiResponse = await fetch(apiUrl, {
+            for (const attempt of activeAttempts) {
+                try {
+                    const apiUrl = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
+                    console.log(`[Diagnostic] Attempting generation using: ${attempt.label}`);
+
+                    const apiResponse = await fetch(apiUrl, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
@@ -125,32 +106,34 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                             },
                         }),
                     });
-                }
 
-                if (apiResponse.ok) {
-                    const data = await apiResponse.json();
-                    let code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                    if (apiResponse.ok) {
+                        const data = await apiResponse.json();
+                        let code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-                    // Extract code from markdown blocks if returned
-                    if (code.includes("```")) {
-                        const matches = code.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
-                        if (matches && matches[1]) {
-                            code = matches[1];
+                        // Extract code from markdown blocks if returned
+                        if (code.includes("```")) {
+                            const matches = code.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
+                            if (matches && matches[1]) {
+                                code = matches[1];
+                            }
                         }
-                    }
 
-                    return NextResponse.json({
-                        success: true,
-                        code: code.trim(),
-                        tier: modelName === "gemini-1.5-pro" ? "Pro" : "Standard (Flash)",
-                    });
-                } else {
-                    const errBody = await apiResponse.text();
-                    console.error(`Gemini API returned error: ${apiResponse.status} - ${errBody}`);
+                        console.log(`[Diagnostic] Generation successful using: ${attempt.label}`);
+                        return NextResponse.json({
+                            success: true,
+                            code: code.trim(),
+                            tier: attempt.label,
+                        });
+                    } else {
+                        const errBody = await apiResponse.text();
+                        console.warn(`[Diagnostic] ${attempt.label} failed with status ${apiResponse.status}: ${errBody}`);
+                    }
+                } catch (err) {
+                    console.warn(`[Diagnostic] ${attempt.label} fetch crashed:`, err);
                 }
-            } catch (apiError) {
-                console.error("Gemini API call failed, falling back to smart generation:", apiError);
             }
+            console.error("[Diagnostic] All live Gemini model endpoints failed. Falling back to offline simulator.");
         }
 
         // 4. FALLBACK ENGINE (Smart rule-based simulation formatted according to developer rules)
