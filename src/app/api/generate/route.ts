@@ -58,10 +58,10 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
         const geminiApiKey = process.env.GEMINI_API_KEY;
         if (geminiApiKey) {
             try {
-                const modelName = isProModel ? "gemini-1.5-pro" : "gemini-1.5-flash";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+                let modelName = isProModel ? "gemini-1.5-pro" : "gemini-1.5-flash";
+                let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
-                const apiResponse = await fetch(apiUrl, {
+                let apiResponse = await fetch(apiUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -90,6 +90,41 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                     }),
                 });
 
+                // Auto fallback to gemini-1.5-flash if gemini-1.5-pro is 404 not found
+                if (!apiResponse.ok && apiResponse.status === 404 && modelName === "gemini-1.5-pro") {
+                    console.warn("models/gemini-1.5-pro was not found. Retrying with models/gemini-1.5-flash...");
+                    modelName = "gemini-1.5-flash";
+                    apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+                    apiResponse = await fetch(apiUrl, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            contents: [
+                                {
+                                    role: "user",
+                                    parts: [
+                                        {
+                                            text: `${schemaText}\n\n${sampleText}\n\nUser Request: ${prompt}\n\nPlease generate the corresponding script code.`,
+                                        },
+                                    ],
+                                },
+                            ],
+                            systemInstruction: {
+                                parts: [
+                                    {
+                                        text: systemPrompt,
+                                    },
+                                ],
+                            },
+                            generationConfig: {
+                                temperature: 0.1,
+                            },
+                        }),
+                    });
+                }
+
                 if (apiResponse.ok) {
                     const data = await apiResponse.json();
                     let code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -105,7 +140,7 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                     return NextResponse.json({
                         success: true,
                         code: code.trim(),
-                        tier: isProModel ? "Pro" : "Standard",
+                        tier: modelName === "gemini-1.5-pro" ? "Pro" : "Standard (Flash)",
                     });
                 } else {
                     const errBody = await apiResponse.text();
