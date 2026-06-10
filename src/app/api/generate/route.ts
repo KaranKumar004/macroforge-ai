@@ -65,118 +65,155 @@ ${language === "vba" ? `IMPORTANT RULES FOR VBA:
 
 Provide ONLY the clean code block without markdown tags. Do not write introductory or concluding conversational text. Include comments indicating the task checklist status.`;
 
-        // 3. Connect to live Gemini API if API key is present in environment
+        // 3. Connect to live Gemini and Nvidia APIs if keys are present in environment
         let geminiApiKey = process.env.GEMINI_API_KEY;
         if (geminiApiKey) {
             geminiApiKey = geminiApiKey.replace(/['"\s]/g, "");
-            // Extract key if pasted with prefix "GEMINI_API_KEY="
             if (geminiApiKey.includes("GEMINI_API_KEY=")) {
                 geminiApiKey = geminiApiKey.split("GEMINI_API_KEY=")[1];
             }
         }
         
+        let nvidiaApiKey = process.env.NVIDIA_API_KEY;
+        if (nvidiaApiKey) {
+            nvidiaApiKey = nvidiaApiKey.replace(/['"\s]/g, "");
+            if (nvidiaApiKey.includes("NVIDIA_API_KEY=")) {
+                nvidiaApiKey = nvidiaApiKey.split("NVIDIA_API_KEY=")[1];
+            }
+        }
+
         const keyPrefix = geminiApiKey ? geminiApiKey.substring(0, 8) : "NONE";
         const keySuffix = geminiApiKey ? geminiApiKey.substring(geminiApiKey.length - 4) : "NONE";
-        logDiag(`[Diagnostic] API Request received. Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
-        logDiag(`[Diagnostic] Key Details - Prefix: ${keyPrefix}, Suffix: ${keySuffix}`);
+        const nvKeyPrefix = nvidiaApiKey ? nvidiaApiKey.substring(0, 8) : "NONE";
+
+        logDiag(`[Diagnostic] API Request received. Gemini Key Present: ${!!geminiApiKey}, Length: ${geminiApiKey ? geminiApiKey.length : 0}`);
+        logDiag(`[Diagnostic] Nvidia Key Present: ${!!nvidiaApiKey}, Length: ${nvidiaApiKey ? nvidiaApiKey.length : 0}`);
+        logDiag(`[Diagnostic] Gemini Key Details - Prefix: ${keyPrefix}, Suffix: ${keySuffix}`);
+        logDiag(`[Diagnostic] Nvidia Key Details - Prefix: ${nvKeyPrefix}`);
         logDiag(`[Diagnostic] Mapped Env Keys: ${JSON.stringify(Object.keys(process.env).filter(k => k.toUpperCase().includes("KEY") || k.toUpperCase().includes("GEMINI") || k === "PORT"))}`);
         
-        if (geminiApiKey) {
-            // Run a quick diagnostic to check which models are actually authorized for this key
-            try {
-                const listUrl = "https://generativelanguage.googleapis.com/v1beta/models";
-                const listRes = await fetch(listUrl, {
-                    method: "GET",
-                    headers: {
-                        "x-goog-api-key": geminiApiKey,
+        if (geminiApiKey || nvidiaApiKey) {
+            // Run a quick diagnostic to check which models are actually authorized for this key (Gemini only)
+            if (geminiApiKey) {
+                try {
+                    const listUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+                    const listRes = await fetch(listUrl, {
+                        method: "GET",
+                        headers: {
+                            "x-goog-api-key": geminiApiKey,
+                        }
+                    });
+                    if (listRes.ok) {
+                        const listData = await listRes.json();
+                        const modelNames = listData.models?.map((m: any) => m.name) || [];
+                        logDiag(`[Diagnostic] ListModels (Header v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
+                    } else {
+                        const errText = await listRes.text();
+                        warnDiag(`[Diagnostic] ListModels (Header v1beta) Failed with status ${listRes.status}:`, errText);
                     }
-                });
-                if (listRes.ok) {
-                    const listData = await listRes.json();
-                    const modelNames = listData.models?.map((m: any) => m.name) || [];
-                    logDiag(`[Diagnostic] ListModels (Header v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
-                } else {
-                    const errText = await listRes.text();
-                    warnDiag(`[Diagnostic] ListModels (Header v1beta) Failed with status ${listRes.status}:`, errText);
+                } catch (listErr: any) {
+                    warnDiag(`[Diagnostic] ListModels (Header v1beta) Crashed:`, listErr?.message || String(listErr));
                 }
-            } catch (listErr: any) {
-                warnDiag(`[Diagnostic] ListModels (Header v1beta) Crashed:`, listErr?.message || String(listErr));
-            }
 
-            try {
-                const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
-                const listRes = await fetch(listUrl);
-                if (listRes.ok) {
-                    const listData = await listRes.json();
-                    const modelNames = listData.models?.map((m: any) => m.name) || [];
-                    logDiag(`[Diagnostic] ListModels (Query v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
-                } else {
-                    const errText = await listRes.text();
-                    warnDiag(`[Diagnostic] ListModels (Query v1beta) Failed with status ${listRes.status}:`, errText);
+                try {
+                    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
+                    const listRes = await fetch(listUrl);
+                    if (listRes.ok) {
+                        const listData = await listRes.json();
+                        const modelNames = listData.models?.map((m: any) => m.name) || [];
+                        logDiag(`[Diagnostic] ListModels (Query v1beta) Success. Models count: ${modelNames.length} Models: ${JSON.stringify(modelNames)}`);
+                    } else {
+                        const errText = await listRes.text();
+                        warnDiag(`[Diagnostic] ListModels (Query v1beta) Failed with status ${listRes.status}:`, errText);
+                    }
+                } catch (listErr: any) {
+                    warnDiag(`[Diagnostic] ListModels (Query v1beta) Crashed:`, listErr?.message || String(listErr));
                 }
-            } catch (listErr: any) {
-                warnDiag(`[Diagnostic] ListModels (Query v1beta) Crashed:`, listErr?.message || String(listErr));
             }
 
             // Define list of model endpoints to try in order of preference
             const attempts = [
-                // 2.5 Flash (Modern Standard)
-                { version: "v1beta", model: "gemini-2.5-flash", useHeader: true, label: "Gemini 2.5 Flash (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-2.5-flash", useHeader: false, label: "Gemini 2.5 Flash (v1beta, Query)" },
+                // NVIDIA API Models (meta/llama-3.1-405b-instruct for Pro reasoning, meta/llama-3.1-70b-instruct for speed)
+                { provider: "nvidia", version: "v1", model: "meta/llama-3.1-405b-instruct", useHeader: true, label: "Llama 3.1 405B (Nvidia)" },
+                { provider: "nvidia", version: "v1", model: "meta/llama-3.1-70b-instruct", useHeader: true, label: "Llama 3.1 70B (Nvidia)" },
+
+                // Gemini 2.5 Flash (Modern Standard)
+                { provider: "gemini", version: "v1beta", model: "gemini-2.5-flash", useHeader: true, label: "Gemini 2.5 Flash (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-2.5-flash", useHeader: false, label: "Gemini 2.5 Flash (v1beta, Query)" },
                 
                 // Flash Latest (Generic mapping)
-                { version: "v1beta", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1beta, Query)" },
-                { version: "v1", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1, Header)" },
-                { version: "v1", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1, Query)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1beta, Query)" },
+                { provider: "gemini", version: "v1", model: "gemini-flash-latest", useHeader: true, label: "Gemini Flash Latest (v1, Header)" },
+                { provider: "gemini", version: "v1", model: "gemini-flash-latest", useHeader: false, label: "Gemini Flash Latest (v1, Query)" },
 
-                // 2.0 Flash
-                { version: "v1beta", model: "gemini-2.0-flash", useHeader: true, label: "Gemini 2.0 Flash (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-2.0-flash", useHeader: false, label: "Gemini 2.0 Flash (v1beta, Query)" },
+                // Gemini 2.0 Flash
+                { provider: "gemini", version: "v1beta", model: "gemini-2.0-flash", useHeader: true, label: "Gemini 2.0 Flash (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-2.0-flash", useHeader: false, label: "Gemini 2.0 Flash (v1beta, Query)" },
 
-                // 3.5 Flash
-                { version: "v1beta", model: "gemini-3.5-flash", useHeader: true, label: "Gemini 3.5 Flash (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-3.5-flash", useHeader: false, label: "Gemini 3.5 Flash (v1beta, Query)" },
+                // Gemini 3.5 Flash
+                { provider: "gemini", version: "v1beta", model: "gemini-3.5-flash", useHeader: true, label: "Gemini 3.5 Flash (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-3.5-flash", useHeader: false, label: "Gemini 3.5 Flash (v1beta, Query)" },
 
-                // 3.1 Flash Lite
-                { version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: true, label: "Gemini 3.1 Flash Lite (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: false, label: "Gemini 3.1 Flash Lite (v1beta, Query)" },
+                // Gemini 3.1 Flash Lite
+                { provider: "gemini", version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: true, label: "Gemini 3.1 Flash Lite (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-3.1-flash-lite", useHeader: false, label: "Gemini 3.1 Flash Lite (v1beta, Query)" },
 
-                // 2.5 Pro
-                { version: "v1beta", model: "gemini-2.5-pro", useHeader: true, label: "Gemini 2.5 Pro (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-2.5-pro", useHeader: false, label: "Gemini 2.5 Pro (v1beta, Query)" },
+                // Gemini 2.5 Pro
+                { provider: "gemini", version: "v1beta", model: "gemini-2.5-pro", useHeader: true, label: "Gemini 2.5 Pro (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-2.5-pro", useHeader: false, label: "Gemini 2.5 Pro (v1beta, Query)" },
 
-                // Pro Latest
-                { version: "v1beta", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1beta, Header)" },
-                { version: "v1beta", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1beta, Query)" },
-                { version: "v1", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1, Header)" },
-                { version: "v1", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1, Query)" }
+                // Gemini Pro Latest
+                { provider: "gemini", version: "v1beta", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1beta, Header)" },
+                { provider: "gemini", version: "v1beta", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1beta, Query)" },
+                { provider: "gemini", version: "v1", model: "gemini-pro-latest", useHeader: true, label: "Gemini Pro Latest (v1, Header)" },
+                { provider: "gemini", version: "v1", model: "gemini-pro-latest", useHeader: false, label: "Gemini Pro Latest (v1, Query)" }
             ];
 
-            // If they didn't choose the Pro model, start directly with Flash to save latency
+            // If they didn't choose the Pro model, filter down to Flash, Lite, Latest, or 70B models
             const activeAttempts = isProModel 
                 ? attempts 
-                : attempts.filter(a => a.model.includes("flash") || a.model.includes("legacy"));
+                : attempts.filter(a => a.model.includes("flash") || a.model.includes("lite") || a.model.includes("latest") || a.model.includes("70b"));
 
             for (const attempt of activeAttempts) {
-                try {
-                    const apiUrl = attempt.useHeader
-                        ? `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent`
-                        : `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
-                    
-                    logDiag(`[Diagnostic] Attempting generation using: ${attempt.label}`);
+                // Skip attempts for which keys are not present
+                if (attempt.provider === "nvidia" && !nvidiaApiKey) {
+                    continue;
+                }
+                if (attempt.provider === "gemini" && !geminiApiKey) {
+                    continue;
+                }
 
-                    const headers: HeadersInit = {
+                try {
+                    let apiUrl = "";
+                    let headers: HeadersInit = {
                         "Content-Type": "application/json",
                     };
-                    if (attempt.useHeader) {
-                        headers["x-goog-api-key"] = geminiApiKey;
-                    }
+                    let requestBody = {};
 
-                    const apiResponse = await fetch(apiUrl, {
-                        method: "POST",
-                        headers,
-                        body: JSON.stringify({
+                    if (attempt.provider === "nvidia") {
+                        apiUrl = "https://integrate.api.nvidia.com/v1/chat/completions";
+                        headers["Authorization"] = `Bearer ${nvidiaApiKey}`;
+                        requestBody = {
+                            model: attempt.model,
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: `${systemPrompt}\n\n${schemaText}\n\n${sampleText}\n\nUser Request: ${prompt}\n\nPlease generate the corresponding script code.`,
+                                }
+                            ],
+                            temperature: 0.1,
+                            max_tokens: 4096,
+                        };
+                    } else {
+                        apiUrl = attempt.useHeader
+                            ? `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent`
+                            : `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${geminiApiKey}`;
+                        
+                        if (attempt.useHeader) {
+                            headers["x-goog-api-key"] = geminiApiKey!;
+                        }
+                        requestBody = {
                             contents: [
                                 {
                                     role: "user",
@@ -190,12 +227,26 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                             generationConfig: {
                                 temperature: 0.1,
                             },
-                        }),
+                        };
+                    }
+                    
+                    logDiag(`[Diagnostic] Attempting generation using: ${attempt.label}`);
+
+                    const apiResponse = await fetch(apiUrl, {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(requestBody),
                     });
 
                     if (apiResponse.ok) {
                         const data = await apiResponse.json();
-                        let code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                        let code = "";
+
+                        if (attempt.provider === "nvidia") {
+                            code = data.choices?.[0]?.message?.content || "";
+                        } else {
+                            code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                        }
 
                         // Extract code from markdown blocks if returned
                         if (code.includes("```")) {
@@ -221,7 +272,7 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                     warnDiag(`[Diagnostic] ${attempt.label} fetch crashed:`, err?.message || String(err));
                 }
             }
-            warnDiag("[Diagnostic] All live Gemini model endpoints failed. Falling back to offline simulator.");
+            warnDiag("[Diagnostic] All live Gemini and Nvidia model endpoints failed. Falling back to offline simulator.");
         }
 
         // 4. FALLBACK ENGINE (Smart rule-based simulation formatted according to developer rules)
