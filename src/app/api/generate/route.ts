@@ -133,7 +133,8 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
 
             // Define list of model endpoints to try in order of preference
             const attempts = [
-                // NVIDIA API Models (meta/llama-3.1-405b-instruct for Pro reasoning, meta/llama-3.1-70b-instruct for speed)
+                // NVIDIA API Models (meta/llama-3.3-70b-instruct is extremely smart/fast, meta/llama-3.1-405b-instruct, meta/llama-3.1-70b-instruct)
+                { provider: "nvidia", version: "v1", model: "meta/llama-3.3-70b-instruct", useHeader: true, label: "Llama 3.3 70B (Nvidia)" },
                 { provider: "nvidia", version: "v1", model: "meta/llama-3.1-405b-instruct", useHeader: true, label: "Llama 3.1 405B (Nvidia)" },
                 { provider: "nvidia", version: "v1", model: "meta/llama-3.1-70b-instruct", useHeader: true, label: "Llama 3.1 70B (Nvidia)" },
 
