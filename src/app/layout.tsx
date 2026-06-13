@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: 'Tell us your problem in plain English. We build your automation.',
 };
 
+import { AuthProvider } from '@/context/AuthContext';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -17,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} antialiased selection:bg-brand-500/30 selection:text-brand-100`}>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
