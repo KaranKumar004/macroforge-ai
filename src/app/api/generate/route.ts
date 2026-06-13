@@ -55,12 +55,29 @@ ${language === "vba" ? `IMPORTANT RULES FOR VBA:
 * EMAIL & PHONE DETECTION: Recognize email columns by header name containing "email" or sample data containing "@". Validate format. Recognize phone columns by name containing "phone"/"mobile" or numeric strings of common lengths. Validate format.
 * ANALYTICS & REPORTS: For numeric columns, generate metrics: Sum, Average, Median, StdDev, Min, Max. For categorical columns, generate frequency tables, pivot summaries, and charts. When reports are requested, create a Summary sheet and write at least 3 plain-English insights and 3 recommendations.
 * FINAL CODE REQUIREMENTS: The generated VBA must compile under 'Option Explicit'. It must open a File Dialog picker letting the user select their data file dynamically, open it, perform operations, save as "[filename]_processed" in the same directory, close the workbook, and restore Excel application settings (ScreenUpdating, Calculation, EnableEvents). Handle errors and include inline comments.
-` : `IMPORTANT RULES FOR PYTHON (PANDAS):
+` : `IMPORTANT RULES FOR PYTHON (PANDAS & OPENPYXL):
 
-* SCHEMA FIRST: Analyze the provided dataset schema. Use actual column names from the dataset.
-* REQUIREMENT EXTRACTION: Write custom pandas transformations addressing every detail in the prompt. Do not use generic template blocks unless they match the user request.
-* RUNNABLE SCRIPT: Open a Tkinter file dialog picker when run locally so the user can select their dataset. Save the output file as "[filename]_processed" in the same folder. Guard the Tkinter GUI imports under a try-except block so they do not crash when running inside a headless browser WebAssembly sandbox (if 'INPUT_FILE_PATH' in globals() is True).
-* DATA QUALITY AUDITS & ANALYTICS: Highlight or filter anomalies (blank cells, duplicate rows, invalid emails/phones). Generate requested analytics (sum, average, standard deviation) or custom plots.
+* SCHEMA FIRST & DYNAMIC HEADERS: Analyze the provided dataset schema (metadata.columns) and use the exact column names. Never assume columns like 'phone', 'dob', 'blood_type', 'annual_income', or 'purchase_count' exist unless you verify their presence in the schema first. Search programmatically using case-insensitive checks and synonyms if needed. If a required column is missing, handle it gracefully by skipping the dependent step and adding a log message or writing 'N/A' in the output, instead of raising a KeyError.
+* TEMPORAL COLUMNS & DATE HANDLING: Recognize date columns. Do NOT perform arithmetic operations (e.g. sum, mean, stddev) directly on raw date/time fields. If Date of Birth (DOB) or other date columns need plotting or statistics, convert them into ages or another meaningful numeric metric first. Plot age distributions rather than raw datetime objects on histograms.
+* DATA QUALITY AUDITS & SANITIZATION:
+  - Phone validation: Sanitize the phone column first (remove floats/decimals, spaces, hyphens, parentheses, country codes, and non-numeric characters) before validating. Handle blank/missing values properly.
+  - Auditing Reports: When auditing, track duplicates and blank cells. Write a detailed "Data Quality Report" worksheet in the output Excel file showing duplicate count, missing values, validation errors, and overall accuracy.
+* AUTOMATED EXPLORATORY DATA ANALYSIS (EDA):
+  - Numeric columns: Perform automatic summary statistics (count, mean, stddev, min, max, median) for all numeric fields.
+  - Outliers: Detect outliers dynamically in numeric columns using the Interquartile Range (IQR) method.
+  - Categorical columns: Perform category breakdowns and frequency distributions for categorical columns.
+  - Correlation: Calculate correlations between numeric variables.
+* EXCEL DASHBOARD & EMBEDDED CHARTS:
+  - Output Worksheets: The output Excel file must NOT just contain the original dataset. You must create the following worksheets:
+    1. 'Data Quality Report' (Audit metrics)
+    2. 'KPI Summary' (Key aggregates as large block cards)
+    3. 'Segment Dashboard' (Pivot tables and insights)
+  - Embedded Charts: Do NOT display charts on screen using blocking calls like 'plt.show()', as they will freeze or fail in headless browser runtimes (like Pyodide). Instead, save charts as image files (e.g. 'chart.png') or embed them directly into the Excel sheets using 'openpyxl.chart' (e.g. BarChart, LineChart) or 'openpyxl.drawing.image.Image'.
+* ROBUST SAFETY & EXCEPTION GUARDS:
+  - Check for empty datasets (df.empty) and exit gracefully.
+  - Check for minimum rows required for statistical operations (e.g. need at least 3 rows to compute variance/stddev) to avoid division-by-zero or mathematical errors.
+  - Wrap data loading, calculations, chart generation, and file saving in structured try-except blocks with detailed print logging.
+  - Headless GUI Guard: Guard Tkinter/GUI code imports and calls under a try-except block so it doesn't run in headless sandbox workers (when 'INPUT_FILE_PATH' in globals() is True).
 `}
 
 Provide ONLY the clean code block without markdown tags. Do not write introductory or concluding conversational text. Include comments indicating the task checklist status.`;
