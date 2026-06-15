@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sparkles, TerminalSquare, AlertCircle, RefreshCw, Layers, Zap, Lock, Play, Coins, LogOut } from "lucide-react";
+import { Sparkles, TerminalSquare, AlertCircle, RefreshCw, Layers, Zap, Lock, Play, Coins, LogOut, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FileUpload } from "@/components/FileUpload";
 import { MetadataGrid } from "@/components/MetadataGrid";
@@ -12,6 +12,7 @@ import { usePyodide } from "@/hooks/usePyodide";
 import { useAuth } from "@/context/AuthContext";
 import type { FileMetadata } from "@/types";
 import * as XLSX from "xlsx";
+import { supabase } from "@/utils/supabase";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -33,12 +34,102 @@ export default function Dashboard() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [checkoutInitialPlan, setCheckoutInitialPlan] = useState<"credits" | "pro">("credits");
 
+  // Supabase Saved Work states
+  const [savedScripts, setSavedScripts] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [saveTitle, setSaveTitle] = useState("");
+
   // Protect the dashboard route: redirect if not logged in
   useEffect(() => {
     if (!isLoading && !user) {
       router.push("/login");
     }
   }, [user, isLoading, router]);
+
+  const fetchSavedScripts = async () => {
+    if (!user?.email) return;
+    try {
+      const { data, error } = await supabase
+        .from("saved_work")
+        .select("*")
+        .eq("email", user.email)
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setSavedScripts(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch saved scripts:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchSavedScripts();
+    }
+  }, [user]);
+
+  const handleSaveWork = async () => {
+    if (!generatedCode || !user?.email || !saveTitle.trim()) return;
+
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("saved_work")
+        .insert({
+          email: user.email,
+          title: saveTitle.trim(),
+          prompt,
+          language,
+          code: generatedCode,
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      setIsSaved(true);
+      setIsSaveModalOpen(false);
+      setSaveTitle("");
+      fetchSavedScripts();
+      setTimeout(() => setIsSaved(false), 3000);
+    } catch (err: any) {
+      setError(err.message || "Failed to save work");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleLoadScript = (script: any) => {
+    setPrompt(script.prompt);
+    setLanguage(script.language as "python" | "vba");
+    setGeneratedCode(script.code);
+    setError(null);
+    setDiagnostics([]);
+    setIsSaved(true);
+    const el = document.getElementById("tool-section");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleDeleteScript = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const { error } = await supabase
+        .from("saved_work")
+        .delete()
+        .eq("id", id);
+
+      if (!error) {
+        setSavedScripts((prev) => prev.filter((s) => s.id !== id));
+      } else {
+        throw error;
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to delete script");
+    }
+  };
 
   if (isLoading || !user) {
     return (
@@ -122,6 +213,7 @@ export default function Dashboard() {
     setError(null);
     setGeneratedCode(null);
     setDiagnostics([]);
+    setIsSaved(false);
 
     try {
       const response = await fetch("/api/generate", {
@@ -159,6 +251,7 @@ export default function Dashboard() {
     setError(null);
     setDiagnostics([]);
     clearLogs();
+    setIsSaved(false);
   };
 
   const handleRunCode = async () => {
@@ -455,12 +548,64 @@ export default function Dashboard() {
                   </div>
                 </>
               )}
+
+              {/* Saved Automations Section */}
+              {user && (
+                <div className="bg-white dark:bg-gray-900/30 p-6 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col gap-4 animate-in fade-in duration-500">
+                  <h2 className="text-lg font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                    <Layers className="w-5 h-5 text-brand-500" />
+                    My Saved Automations ({savedScripts.length})
+                  </h2>
+                  {savedScripts.length === 0 ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      You haven't saved any scripts yet. Generate a script and click "Save Work" to see it here!
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2.5 max-h-60 overflow-y-auto pr-1">
+                      {savedScripts.map((script) => (
+                        <div
+                          key={script.id}
+                          onClick={() => handleLoadScript(script)}
+                          className="flex items-center justify-between p-3.5 bg-gray-50 dark:bg-black/20 hover:bg-brand-500/5 hover:border-brand-500/30 border border-gray-150 dark:border-gray-800 rounded-xl cursor-pointer transition-all group"
+                        >
+                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-brand-500 transition-colors truncate">
+                              {script.title}
+                            </span>
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono truncate">
+                              {script.prompt}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2 flex-shrink-0 font-sans">
+                            <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${script.language === 'python' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 font-bold' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20 font-bold'}`}>
+                              {script.language === 'python' ? 'Python' : 'VBA'}
+                            </span>
+                            <button
+                              onClick={(e) => handleDeleteScript(script.id, e)}
+                              className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-red-500/10 transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                              title="Delete script"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Right Column: Code Preview & Console logs */}
             <div className="flex flex-col gap-6 w-full lg:h-[calc(100vh-12rem)]">
               <div className="flex-1 min-h-[350px]">
-                <CodePreview code={generatedCode || ""} language={language} />
+                <CodePreview
+                  code={generatedCode || ""}
+                  language={language}
+                  onSave={() => setIsSaveModalOpen(true)}
+                  isSaving={isSaving}
+                  isSaved={isSaved}
+                />
               </div>
               
               {generatedCode && language === "python" && (
@@ -479,6 +624,49 @@ export default function Dashboard() {
         onPaymentSuccess={handlePaymentSuccess}
         initialPlan={checkoutInitialPlan}
       />
+
+      {/* Save Work Modal */}
+      {isSaveModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0c0c0e] border border-gray-200 dark:border-gray-800 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Save Automation</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Provide a descriptive title to locate it later in your saved work list.</p>
+            </div>
+
+            <div className="flex flex-col gap-1.5 font-sans">
+              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Title</label>
+              <input
+                type="text"
+                value={saveTitle}
+                onChange={(e) => setSaveTitle(e.target.value)}
+                placeholder="e.g. Filter invalid phone numbers"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-black/30 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/50 text-sm text-gray-900 dark:text-white placeholder:text-gray-550 shadow-inner font-semibold"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 mt-2 font-sans">
+              <button
+                onClick={() => {
+                  setIsSaveModalOpen(false);
+                  setSaveTitle("");
+                }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-colors cursor-pointer select-none"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveWork}
+                disabled={isSaving || !saveTitle.trim()}
+                className="px-5 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer select-none"
+              >
+                {isSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="w-full border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#09090b] py-8 mt-16">

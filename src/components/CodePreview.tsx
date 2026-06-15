@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Download, Code2, Sparkles } from "lucide-react";
+import { Check, Copy, Download, Code2, Sparkles, Save } from "lucide-react";
 
 interface CodePreviewProps {
     code: string;
     language: "python" | "vba";
+    onSave?: () => void;
+    isSaving?: boolean;
+    isSaved?: boolean;
 }
 
-export function CodePreview({ code, language }: CodePreviewProps) {
+export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodePreviewProps) {
     const [copied, setCopied] = useState(false);
 
     const copyToClipboard = async () => {
@@ -55,16 +58,26 @@ export function CodePreview({ code, language }: CodePreviewProps) {
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {onSave && (
+                        <button
+                            onClick={onSave}
+                            disabled={isSaving || isSaved}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900/50 disabled:text-gray-500 text-gray-200 rounded-md transition-colors text-xs font-medium cursor-pointer"
+                        >
+                            <Save className="w-3.5 h-3.5" />
+                            {isSaved ? "Saved" : isSaving ? "Saving..." : "Save Work"}
+                        </button>
+                    )}
                     <button
                         onClick={copyToClipboard}
-                        className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-colors cursor-pointer"
                         title="Copy to clipboard"
                     >
                         {copied ? <Check className="w-4 h-4 text-brand-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
                         onClick={downloadCode}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white rounded-md transition-colors text-xs font-medium"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white rounded-md transition-colors text-xs font-medium cursor-pointer"
                     >
                         <Download className="w-3.5 h-3.5" />
                         Download
@@ -79,3 +92,4 @@ export function CodePreview({ code, language }: CodePreviewProps) {
         </div>
     );
 }
+

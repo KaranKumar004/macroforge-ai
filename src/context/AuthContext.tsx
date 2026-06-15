@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "@/utils/supabase";
 
 interface User {
   email: string;
@@ -11,7 +12,7 @@ interface AuthContextType {
   credits: number;
   isPro: boolean;
   isLoading: boolean;
-  login: (email: string) => void;
+  login: (email: string) => Promise<void> | void;
   logout: () => void;
   deductCredit: () => void;
   addCredits: (amount: number) => void;
@@ -47,10 +48,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
-  const login = (email: string) => {
+  const login = async (email: string) => {
     const newUser = { email };
     setUser(newUser);
     localStorage.setItem("mf_user", JSON.stringify(newUser));
+
+    try {
+      await supabase.from("user_emails").upsert({ email }, { onConflict: "email" });
+    } catch (err) {
+      console.error("Failed to insert email to Supabase:", err);
+    }
   };
 
   const logout = () => {
