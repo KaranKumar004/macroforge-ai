@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { X, CreditCard, ShieldCheck, CheckCircle2, Loader2, Sparkles, Zap, Coins } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { X, ShieldCheck, CheckCircle2, Loader2, Sparkles, Zap, Coins } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -11,70 +12,219 @@ interface CheckoutModalProps {
 }
 
 export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan = "credits" }: CheckoutModalProps) {
+  const { user } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<"credits" | "pro">(initialPlan);
-  const [cardNumber, setCardNumber] = useState("");
-  const [expiry, setExpiry] = useState("");
-  const [cvc, setCvc] = useState("");
-  const [name, setName] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"billing" | "success">("billing");
-  const [cardType, setCardType] = useState<"visa" | "mastercard" | "amex" | "unknown">("unknown");
+  const [isPaypalSdkLoaded, setIsPaypalSdkLoaded] = useState(false);
+
+  const selectedPlanRef = useRef(selectedPlan);
+  useEffect(() => {
+    selectedPlanRef.current = selectedPlan;
+  }, [selectedPlan]);
 
   useEffect(() => {
     if (isOpen) {
       setStep("billing");
       setIsProcessing(false);
-      // Keep selected plan set to what was requested
       setSelectedPlan(initialPlan);
+      
+      // If SDK was already loaded globally on window, transition state immediately
+      if (typeof window !== "undefined" && (window as any).paypal) {
+        setIsPaypalSdkLoaded(true);
+      } else {
+        setIsPaypalSdkLoaded(false);
+      }
     }
   }, [isOpen, initialPlan]);
 
-  // Detect card issuer based on first digit
-  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawVal = e.target.value.replace(/\D/g, "");
-    if (rawVal.startsWith("4")) {
-      setCardType("visa");
-    } else if (rawVal.startsWith("5")) {
-      setCardType("mastercard");
-    } else if (rawVal.startsWith("3")) {
-      setCardType("amex");
-    } else {
-      setCardType("unknown");
+  // Load Razorpay Script dynamically
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  // Load PayPal SDK dynamically when modal opens
+  useEffect(() => {
+    if (isOpen && !isPaypalSdkLoaded) {
+      if (typeof window !== "undefined" && (window as any).paypal) {
+        setIsPaypalSdkLoaded(true);
+        return;
+      }
+
+      const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+      console.log("[CheckoutModal] Loading PayPal SDK. Client ID:", clientId);
+      if (!clientId || clientId.includes("placeholder")) {
+        console.warn("[CheckoutModal] PayPal Client ID is missing or placeholder.");
+        return;
+      }
+
+      // Check if script already exists to avoid duplicate loads
+      const existingScript = document.getElementById("paypal-sdk-script");
+      if (existingScript) {
+        setIsPaypalSdkLoaded(true);
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
+      script.id = "paypal-sdk-script";
+      script.onload = () => {
+        setIsPaypalSdkLoaded(true);
+      };
+      script.onerror = () => {
+        console.error("[CheckoutModal] Failed to load PayPal SDK.");
+      };
+      document.body.appendChild(script);
     }
+  }, [isOpen, isPaypalSdkLoaded]);
 
-    // Format with spaces: 1234 5678 1234 5678
-    const formatted = rawVal
-      .replace(/(\d{4})/, "$1 ")
-      .replace(/(\d{4}) (\d{4})/, "$1 $2 ")
-      .replace(/(\d{4}) (\d{4}) (\d{4})/, "$1 $2 $3 ")
-      .trim()
-      .substring(0, 19); // Max length 19 (16 digits + 3 spaces)
-    setCardNumber(formatted);
-  };
-
-  const handleExpiryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawVal = e.target.value.replace(/\D/g, "");
-    let formatted = rawVal;
-    if (rawVal.length > 2) {
-      formatted = `${rawVal.substring(0, 2)}/${rawVal.substring(2, 4)}`;
+  // Render PayPal Smart Buttons once script is loaded
+  useEffect(() => {
+    if (isPaypalSdkLoaded && isOpen) {
+      const container = document.getElementById("paypal-button-container");
+      if (container) {
+        container.innerHTML = ""; // Clear duplicate renders
+        try {
+          (window as any).paypal.Buttons({
+            style: {
+              layout: "vertical",
+              color: "gold",
+              shape: "rect",
+              label: "paypal",
+            },
+            createOrder: (data: any, actions: any) => {
+              const currentPlan = selectedPlanRef.current;
+              const price = currentPlan === "credits" ? "9.99" : "19.99";
+              const description = currentPlan === "credits" ? "MacroForge 50 Credits Pack" : "MacroForge Pro Subscription";
+              return actions.order.create({
+                purchase_units: [
+                  {
+                    amount: {
+                      value: price,
+                    },
+                    description: description,
+                  },
+                ],
+              });
+            },
+            onApprove: async (data: any, actions: any) => {
+              setIsProcessing(true);
+              try {
+                const details = await actions.order.capture();
+                if (details.status === "COMPLETED") {
+                  setStep("success");
+                } else {
+                  alert("PayPal transaction did not complete.");
+                }
+              } catch (err: any) {
+                console.error("PayPal capture error:", err);
+                alert(err.message || "Failed to capture PayPal payment.");
+              } finally {
+                setIsProcessing(false);
+              }
+            },
+            onError: (err: any) => {
+              console.error("PayPal Buttons error:", err);
+              alert("PayPal checkout encountered an error. Please try again.");
+            },
+          }).render("#paypal-button-container");
+        } catch (err) {
+          console.error("Error rendering PayPal buttons:", err);
+        }
+      }
     }
-    setExpiry(formatted.substring(0, 5));
-  };
+  }, [isPaypalSdkLoaded, isOpen]);
 
-  const handleCvcChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawVal = e.target.value.replace(/\D/g, "");
-    setCvc(rawVal.substring(0, selectedPlan === "pro" ? 4 : 3));
-  };
 
-  const handlePay = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cardNumber || !expiry || !cvc || !name) return;
+  // Trigger Razorpay payment wizard
+  const handleRazorpayPay = async () => {
+    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+    console.log("[CheckoutModal] Initiating Razorpay pay. Key ID:", keyId);
+    
+    if (!keyId || keyId.includes("placeholder")) {
+      alert("Razorpay Key ID is not configured or is a placeholder in .env.local.");
+      return;
+    }
 
     setIsProcessing(true);
-    // Simulate premium payment processing with loader
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setIsProcessing(false);
-    setStep("success");
+    const isScriptLoaded = await loadRazorpayScript();
+    if (!isScriptLoaded) {
+      alert("Failed to load Razorpay Checkout script. Check your internet connection.");
+      setIsProcessing(false);
+      return;
+    }
+
+    const price = selectedPlan === "credits" ? 9.99 : 19.99;
+
+    try {
+      // 1. Create order on Next.js API endpoint
+      const res = await fetch("/api/payment/razorpay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: price, plan: selectedPlan }),
+      });
+
+      const orderData = await res.json();
+      if (!res.ok) {
+        throw new Error(orderData.error || "Order creation failed");
+      }
+
+      // 2. Open Razorpay modal overlay
+      const options = {
+        key: keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "MacroForge AI",
+        description: selectedPlan === "credits" ? "50 Generation Credits" : "Pro Monthly membership",
+        order_id: orderData.orderId,
+        handler: async function (response: any) {
+          setIsProcessing(true);
+          try {
+            // 3. Cryptographically verify signature on server
+            const verifyRes = await fetch("/api/payment/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            const verifyData = await verifyRes.json();
+            if (verifyRes.ok && verifyData.verified) {
+              setStep("success");
+            } else {
+              alert(verifyData.error || "Payment signature validation failed.");
+            }
+          } catch (err: any) {
+            alert(err.message || "Failed to verify transaction.");
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        prefill: {
+          name: user?.email ? user.email.split("@")[0] : "Customer",
+          email: user?.email || "customer@example.com",
+        },
+        theme: {
+          color: "#22c55e",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || "Failed to initialize Razorpay payment.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleFinish = () => {
@@ -87,16 +237,16 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="relative w-full max-w-lg bg-gray-900 border border-gray-800 rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
-        
         {/* Header decoration */}
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-brand-400 via-blue-500 to-purple-600" />
-        
+
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white rounded-full bg-gray-800/50 hover:bg-gray-800 transition-all z-10"
+          className="absolute top-5 right-5 p-2 bg-gray-805 hover:bg-gray-750 text-gray-200 hover:text-white rounded-full border border-gray-850/20 transition-all z-30 cursor-pointer shadow-md"
+          aria-label="Close modal"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4.5 h-4.5" />
         </button>
 
         {step === "billing" ? (
@@ -106,9 +256,7 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
                 <Sparkles className="w-6 h-6 text-brand-400" />
                 Upgrade MacroForge AI
               </h2>
-              <p className="text-sm text-gray-400 mt-1">
-                Unlock automated macro coding and browser sandbox execution.
-              </p>
+              <p className="text-sm text-gray-400 mt-1">Select a plan and complete your checkout securely.</p>
             </div>
 
             {/* Plans Selector */}
@@ -156,107 +304,59 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
               </div>
             </div>
 
-            {/* Payment Details Form */}
-            <form onSubmit={handlePay} className="space-y-4">
-              <div className="border-t border-gray-800 pt-5">
-                <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-1.5">
-                  <CreditCard className="w-4 h-4 text-brand-400" />
-                  Secure Payment Details (Mock)
-                </h3>
-              </div>
+            {/* Payment Gateways Section */}
+            <div className="space-y-5 border-t border-gray-800/80 pt-6">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest text-center flex items-center justify-center gap-1.5 mb-2">
+                <ShieldCheck className="w-4 h-4 text-brand-500" />
+                Select Live Payment Method
+              </h3>
 
-              {/* Card Number */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-gray-400">Card Number</label>
-                <div className="relative flex items-center">
-                  <input
-                    type="text"
-                    required
-                    value={cardNumber}
-                    onChange={handleCardNumberChange}
-                    placeholder="4000 1234 5678 9010"
-                    className="w-full pl-4 pr-12 py-3 bg-gray-950/60 border border-gray-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 rounded-xl text-white outline-none placeholder:text-gray-600 text-sm tracking-wider"
-                  />
-                  <div className="absolute right-4">
-                    {cardType === "visa" && (
-                      <span className="text-xs font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded">VISA</span>
-                    )}
-                    {cardType === "mastercard" && (
-                      <span className="text-xs font-bold text-orange-500 bg-orange-500/10 px-2 py-1 rounded">MC</span>
-                    )}
-                    {cardType === "amex" && (
-                      <span className="text-xs font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">AMEX</span>
-                    )}
-                    {cardType === "unknown" && (
-                      <CreditCard className="w-5 h-5 text-gray-600" />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Expiry & CVC */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-400">Expires</label>
-                  <input
-                    type="text"
-                    required
-                    value={expiry}
-                    onChange={handleExpiryChange}
-                    placeholder="MM/YY"
-                    className="w-full px-4 py-3 bg-gray-950/60 border border-gray-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 rounded-xl text-white outline-none placeholder:text-gray-600 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-400">CVC</label>
-                  <input
-                    type="password"
-                    required
-                    value={cvc}
-                    onChange={handleCvcChange}
-                    placeholder="•••"
-                    className="w-full px-4 py-3 bg-gray-950/60 border border-gray-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 rounded-xl text-white outline-none placeholder:text-gray-600 text-sm tracking-widest"
-                  />
-                </div>
-              </div>
-
-              {/* Cardholder Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-gray-400">Cardholder Name</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  className="w-full px-4 py-3 bg-gray-950/60 border border-gray-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 rounded-xl text-white outline-none placeholder:text-gray-600 text-sm"
-                />
-              </div>
-
-              {/* Submit Pay button */}
+              {/* Razorpay Launch Button */}
               <button
-                type="submit"
+                type="button"
+                onClick={handleRazorpayPay}
                 disabled={isProcessing}
-                className="w-full mt-4 py-4 px-6 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-xl text-base font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 select-none cursor-pointer"
+                className="w-full py-3.5 px-6 bg-[#0c1f15] hover:bg-[#122e1f] border border-brand-500/30 text-brand-100 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2.5 cursor-pointer select-none"
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Securely Processing...
+                    <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
+                    Connecting to Razorpay...
                   </>
                 ) : (
                   <>
-                    <ShieldCheck className="w-5 h-5 text-brand-100" />
-                    Pay {selectedPlan === "credits" ? "$9.99" : "$19.99"}
+                    <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
+                    Pay with Razorpay (UPI, Card, Net Banking)
                   </>
                 )}
               </button>
 
-              <div className="flex items-center justify-center gap-1.5 text-[10px] text-gray-500 pt-2 text-center">
-                <ShieldCheck className="w-3.5 h-3.5 text-gray-600" />
-                <span>Simulated Secure Stripe Checkout. No real money will be charged.</span>
+              <div className="relative flex items-center justify-center py-1.5">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-850" />
+                </div>
+                <span className="relative px-3 bg-gray-900 text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                  Or
+                </span>
               </div>
-            </form>
+
+              {/* PayPal Button Container */}
+              <div className="w-full min-h-[110px] relative z-10">
+                {!isPaypalSdkLoaded ? (
+                  <div className="w-full flex items-center justify-center p-6 text-xs text-gray-450 border border-gray-800/80 rounded-2xl bg-gray-950/20">
+                    <Loader2 className="w-4 h-4 animate-spin text-yellow-500 mr-2" />
+                    Loading PayPal express buttons...
+                  </div>
+                ) : (
+                  <div id="paypal-button-container" className="w-full relative z-10 animate-in fade-in duration-300"></div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-1.5 text-[9px] text-gray-500 pt-5 text-center border-t border-gray-850/60 mt-4">
+              <ShieldCheck className="w-3.5 h-3.5 text-gray-600" />
+              <span>Payments processed via secure encrypted Razorpay & PayPal API tunnels.</span>
+            </div>
           </div>
         ) : (
           /* Success Screen */
@@ -264,7 +364,7 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
             <div className="w-16 h-16 rounded-full bg-brand-500/10 flex items-center justify-center mb-6 border border-brand-500/30">
               <CheckCircle2 className="w-10 h-10 text-brand-500 pulse-glow" />
             </div>
-            
+
             <h2 className="text-2xl font-black text-white mb-2">Payment Successful!</h2>
             <p className="text-sm text-gray-400 max-w-sm mb-8">
               {selectedPlan === "credits"

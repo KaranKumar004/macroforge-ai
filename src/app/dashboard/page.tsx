@@ -71,6 +71,21 @@ export default function Dashboard() {
     }
   }, [user]);
 
+  // Check URL parameters for immediate checkout requests
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const checkoutParam = params.get("checkout");
+      if (checkoutParam === "credits" || checkoutParam === "pro") {
+        setCheckoutInitialPlan(checkoutParam);
+        setIsCheckoutOpen(true);
+        // Clean query parameter from address bar
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+      }
+    }
+  }, [user, isLoading]);
+
   const handleSaveWork = async () => {
     if (!generatedCode || !user?.email || !saveTitle.trim()) return;
 
@@ -191,12 +206,6 @@ export default function Dashboard() {
     if (!metadata || !prompt.trim()) return;
 
     // --- PAYWALL CHECKS ---
-    if (language === "vba" && !isPro) {
-      setCheckoutInitialPlan("pro");
-      setIsCheckoutOpen(true);
-      return;
-    }
-
     if (isProModel && !isPro) {
       setCheckoutInitialPlan("pro");
       setIsCheckoutOpen(true);
@@ -332,6 +341,20 @@ export default function Dashboard() {
                   </button>
                 </div>
               )}
+
+              <div className="h-6 w-px bg-gray-200 dark:bg-gray-850"></div>
+
+              {/* User profile avatar link */}
+              <button
+                onClick={() => router.push("/profile")}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-brand-500/15 border border-transparent hover:border-brand-500/20 dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 hover:text-brand-500 dark:hover:text-brand-400 rounded-full text-xs font-bold transition-all cursor-pointer select-none"
+                title="Go to Account Profile"
+              >
+                <div className="w-4 h-4 rounded-full bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center text-[10px] font-extrabold uppercase select-none">
+                  {user?.email ? user.email.substring(0, 2) : "US"}
+                </div>
+                <span className="truncate max-w-[80px]">Account</span>
+              </button>
 
               <div className="h-6 w-px bg-gray-200 dark:bg-gray-850"></div>
 
@@ -597,15 +620,40 @@ export default function Dashboard() {
             </div>
 
             {/* Right Column: Code Preview & Console logs */}
-            <div className="flex flex-col gap-6 w-full lg:h-[calc(100vh-12rem)]">
+            <div className="flex flex-col gap-6 w-full lg:h-[calc(100vh-12rem)] font-sans">
               <div className="flex-1 min-h-[350px]">
-                <CodePreview
-                  code={generatedCode || ""}
-                  language={language}
-                  onSave={() => setIsSaveModalOpen(true)}
-                  isSaving={isSaving}
-                  isSaved={isSaved}
-                />
+                {isGenerating ? (
+                  <div className="w-full h-full min-h-[350px] bg-white dark:bg-[#0c0c0e]/30 border border-gray-250 dark:border-gray-800 rounded-3xl p-8 flex flex-col items-center justify-center gap-6 shadow-sm animate-in fade-in duration-300">
+                    {/* Premium Circle Progress Loader */}
+                    <div className="relative w-20 h-20">
+                      <div className="w-full h-full rounded-full border-4 border-brand-500/10" />
+                      <div className="absolute top-0 left-0 w-full h-full rounded-full border-4 border-brand-500 border-t-transparent animate-spin" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Sparkles className="w-6 h-6 text-brand-500 animate-pulse" />
+                      </div>
+                    </div>
+                    
+                    <div className="text-center flex flex-col gap-1.5 max-w-xs">
+                      <h3 className="text-base font-bold text-gray-800 dark:text-gray-200">Generating Script</h3>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        MacroForge AI is analyzing your spreadsheet structure and writing custom formulas...
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <CodePreview
+                    code={generatedCode || ""}
+                    language={language}
+                    onSave={() => setIsSaveModalOpen(true)}
+                    isSaving={isSaving}
+                    isSaved={isSaved}
+                    isPro={isPro}
+                    onUpgrade={() => {
+                      setCheckoutInitialPlan("pro");
+                      setIsCheckoutOpen(true);
+                    }}
+                  />
+                )}
               </div>
               
               {generatedCode && language === "python" && (

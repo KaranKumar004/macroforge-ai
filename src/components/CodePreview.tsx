@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Download, Code2, Sparkles, Save } from "lucide-react";
+import { Check, Copy, Download, Code2, Sparkles, Save, Lock } from "lucide-react";
 
 interface CodePreviewProps {
     code: string;
@@ -9,18 +9,36 @@ interface CodePreviewProps {
     onSave?: () => void;
     isSaving?: boolean;
     isSaved?: boolean;
+    isPro?: boolean;
+    onUpgrade?: () => void;
 }
 
-export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodePreviewProps) {
+export function CodePreview({ 
+    code, 
+    language, 
+    onSave, 
+    isSaving, 
+    isSaved,
+    isPro = false,
+    onUpgrade
+}: CodePreviewProps) {
     const [copied, setCopied] = useState(false);
 
     const copyToClipboard = async () => {
+        if (language === "vba" && !isPro) {
+            if (onUpgrade) onUpgrade();
+            return;
+        }
         await navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
     const downloadCode = () => {
+        if (language === "vba" && !isPro) {
+            if (onUpgrade) onUpgrade();
+            return;
+        }
         const blob = new Blob([code], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -48,6 +66,8 @@ export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodeP
         );
     }
 
+    const isLocked = language === "vba" && !isPro;
+
     return (
         <div className="glass-panel w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-500 h-full border border-brand-500/20 shadow-[0_0_30px_rgba(34,197,94,0.1)]">
             <div className="px-4 py-3 bg-[#0d1117] border-b border-gray-800 flex items-center justify-between">
@@ -71,7 +91,7 @@ export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodeP
                     <button
                         onClick={copyToClipboard}
                         className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-colors cursor-pointer"
-                        title="Copy to clipboard"
+                        title={isLocked ? "Upgrade to copy code" : "Copy to clipboard"}
                     >
                         {copied ? <Check className="w-4 h-4 text-brand-400" /> : <Copy className="w-4 h-4" />}
                     </button>
@@ -79,7 +99,7 @@ export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodeP
                         onClick={downloadCode}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white rounded-md transition-colors text-xs font-medium cursor-pointer"
                     >
-                        <Download className="w-3.5 h-3.5" />
+                        {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
                         Download
                     </button>
                 </div>
@@ -89,6 +109,20 @@ export function CodePreview({ code, language, onSave, isSaving, isSaved }: CodeP
                     <code>{code}</code>
                 </pre>
             </div>
+            {isLocked && (
+                <div className="bg-purple-950/40 border-t border-purple-500/20 p-3 px-4 flex items-center justify-between text-xs font-semibold">
+                    <span className="text-purple-400 flex items-center gap-1.5">
+                        <Lock className="w-4 h-4 text-purple-400" />
+                        PRO macro preview. Upgrade to Pro to copy or download this code.
+                    </span>
+                    <button
+                        onClick={onUpgrade}
+                        className="text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider select-none cursor-pointer shadow-md shadow-purple-900/30"
+                    >
+                        Upgrade Now
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

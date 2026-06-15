@@ -7,7 +7,7 @@ import { TerminalSquare, Mail, Lock, Chrome, Github, AlertCircle, ArrowRight } f
 
 export default function Login() {
   const router = useRouter();
-  const { user, login, isLoading } = useAuth();
+  const { user, login, signUp, loginWithOAuth, isLoading } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,21 +36,31 @@ export default function Login() {
     setIsSubmitting(true);
     setError(null);
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    login(email);
-    setIsSubmitting(false);
-    router.push("/dashboard");
+    try {
+      if (isSignUp) {
+        await signUp(email, password);
+        alert("Registration successful! You can now sign in.");
+        setIsSignUp(false);
+      } else {
+        await login(email, password);
+        router.push("/dashboard");
+      }
+    } catch (err: any) {
+      setError(err.message || "Authentication failed. Try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSSOLogin = async (provider: string) => {
+  const handleSSOLogin = async (provider: "google" | "github") => {
     setIsSubmitting(true);
     setError(null);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    login(`${provider.toLowerCase()}user@example.com`);
-    setIsSubmitting(false);
-    router.push("/dashboard");
+    try {
+      await loginWithOAuth(provider);
+    } catch (err: any) {
+      setError(err.message || `SSO login failed for ${provider}`);
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading || user) {
@@ -150,17 +160,17 @@ export default function Login() {
           {/* SSO Buttons */}
           <div className="grid grid-cols-2 gap-4">
             <button
-              onClick={() => handleSSOLogin("Google")}
+              onClick={() => handleSSOLogin("google")}
               disabled={isSubmitting}
-              className="flex items-center justify-center gap-2 py-2.5 px-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/20 dark:hover:bg-gray-800/40 text-xs font-semibold text-gray-750 dark:text-gray-300 transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-2 py-2.5 px-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/20 dark:hover:bg-gray-800/40 text-xs font-semibold text-gray-700 dark:text-gray-300 transition-colors cursor-pointer"
             >
               <Chrome className="w-4 h-4 text-red-500" />
               <span>Google</span>
             </button>
             <button
-              onClick={() => handleSSOLogin("GitHub")}
+              onClick={() => handleSSOLogin("github")}
               disabled={isSubmitting}
-              className="flex items-center justify-center gap-2 py-2.5 px-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/20 dark:hover:bg-gray-800/40 text-xs font-semibold text-gray-750 dark:text-gray-300 transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-2 py-2.5 px-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/20 dark:hover:bg-gray-800/40 text-xs font-semibold text-gray-700 dark:text-gray-300 transition-colors cursor-pointer"
             >
               <Github className="w-4 h-4 text-gray-900 dark:text-white" />
               <span>GitHub</span>

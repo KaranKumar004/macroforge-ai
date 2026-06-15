@@ -314,8 +314,14 @@ def build_ecommerce_dashboard(file_path):
             </ul>
 
             <button
-              onClick={() => router.push("/login")}
-              className="w-full py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800/50 dark:hover:bg-gray-800 text-gray-900 dark:text-white font-bold rounded-xl text-sm transition-colors cursor-pointer select-none"
+              onClick={() => {
+                if (user) {
+                  router.push("/dashboard?checkout=credits");
+                } else {
+                  router.push("/login");
+                }
+              }}
+              className="w-full py-3 bg-gray-100 hover:bg-gray-250 dark:bg-gray-800/50 dark:hover:bg-gray-800 text-gray-900 dark:text-white font-bold rounded-xl text-sm transition-colors cursor-pointer select-none"
             >
               Get Credits Pack
             </button>
@@ -365,7 +371,13 @@ def build_ecommerce_dashboard(file_path):
             </ul>
 
             <button
-              onClick={() => router.push("/login")}
+              onClick={() => {
+                if (user) {
+                  router.push("/dashboard?checkout=pro");
+                } else {
+                  router.push("/login");
+                }
+              }}
               className="w-full py-3.5 bg-brand-500 hover:bg-brand-600 text-white font-bold rounded-xl text-sm shadow-[0_0_15px_rgba(34,197,94,0.2)] transition-all cursor-pointer select-none"
             >
               Subscribe to Pro
