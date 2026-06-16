@@ -14,8 +14,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Convert to paise (e.g., $9.99/Rs 9.99 is 999 paise)
-    const amountInPaise = Math.round(amount * 100);
+    // Convert USD to INR at a fixed conversion rate (1 USD = 84 INR)
+    // E.g., $9.99 USD * 84 = 839.16 INR. Rounding to nearest integer gives 839 INR (83900 paise)
+    const usdToInrRate = 84;
+    const amountInInr = amount * usdToInrRate;
+    const amountInPaise = Math.round(amountInInr * 100);
 
     // Build base64 credentials for Basic Auth
     const authString = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
