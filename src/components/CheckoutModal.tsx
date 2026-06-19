@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X, ShieldCheck, CheckCircle2, Loader2, Sparkles, Zap, Coins } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/utils/supabase";
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -118,7 +119,25 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
               try {
                 const details = await actions.order.capture();
                 if (details.status === "COMPLETED") {
-                  setStep("success");
+                  // Call server-side verification and database updates
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const verifyRes = await fetch("/api/payment/paypal/verify", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${session?.access_token || ""}`
+                    },
+                    body: JSON.stringify({
+                      orderId: details.id,
+                      plan: selectedPlanRef.current,
+                    })
+                  });
+                  const verifyData = await verifyRes.json();
+                  if (verifyRes.ok && verifyData.verified) {
+                    setStep("success");
+                  } else {
+                    alert(verifyData.error || "PayPal payment verification failed.");
+                  }
                 } else {
                   alert("PayPal transaction did not complete.");
                 }
@@ -186,14 +205,19 @@ export function CheckoutModal({ isOpen, onClose, onPaymentSuccess, initialPlan =
         handler: async function (response: any) {
           setIsProcessing(true);
           try {
+            const { data: { session } } = await supabase.auth.getSession();
             // 3. Cryptographically verify signature on server
             const verifyRes = await fetch("/api/payment/verify", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { 
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${session?.access_token || ""}`
+              },
               body: JSON.stringify({
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
+                plan: selectedPlan,
               }),
             });
 

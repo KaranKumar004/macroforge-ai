@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { supabase } from "@/utils/supabase";
+import { supabaseAdmin } from "@/utils/supabaseAdmin";
 
 export async function POST(req: Request) {
     const diagnosticLogs: string[] = [];
@@ -14,6 +16,44 @@ export async function POST(req: Request) {
 
     try {
         const { prompt, metadata, language, isProModel } = await req.json();
+
+        // Read authorization token
+        const authHeader = req.headers.get("Authorization");
+        const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+
+        let userId = null;
+        let isPro = false;
+        let userProfile = null;
+
+        if (token) {
+            const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+            if (authError || !user) {
+                return NextResponse.json({ error: "Unauthorized access token." }, { status: 401 });
+            }
+            userId = user.id;
+
+            // Fetch user profile securely via supabaseAdmin (bypassing RLS)
+            const { data: profile, error: profileError } = await supabaseAdmin
+                .from("user_profiles")
+                .select("credits, is_pro")
+                .eq("id", userId)
+                .single();
+
+            if (profileError || !profile) {
+                return NextResponse.json({ error: "User profile not found. Please register." }, { status: 403 });
+            }
+
+            userProfile = profile;
+            isPro = profile.is_pro;
+
+            // Check credits
+            if (!isPro && profile.credits <= 0) {
+                return NextResponse.json({ error: "Out of credits. Please purchase a credits pack or upgrade to Pro." }, { status: 403 });
+            }
+        } else {
+            // Require authentication in production to prevent token leakage/misuse
+            return NextResponse.json({ error: "Authentication required to generate scripts." }, { status: 401 });
+        }
 
         const columns = metadata?.columns || [];
         const filename = metadata?.filename || "data.xlsx";
@@ -584,6 +624,20 @@ CleanUp:
     Application.EnableEvents = True
 End Sub
 `;
+        }
+
+        // Decrement credit securely if the user is not Pro
+        if (userId && !isPro && userProfile) {
+            const { error: deductError } = await supabaseAdmin
+                .from("user_profiles")
+                .update({ credits: Math.max(0, userProfile.credits - 1) })
+                .eq("id", userId);
+            
+            if (deductError) {
+                console.error("[Generate Secure] Failed to deduct user credit:", deductError);
+            } else {
+                console.log(`[Generate Secure] Securely deducted 1 credit for user: ${userId}. New credits: ${userProfile.credits - 1}`);
+            }
         }
 
         return NextResponse.json({

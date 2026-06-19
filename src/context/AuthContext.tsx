@@ -17,9 +17,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   loginWithOAuth: (provider: "google" | "github") => Promise<void>;
   logout: () => Promise<void>;
-  deductCredit: () => Promise<void>;
-  addCredits: (amount: number) => Promise<void>;
-  upgradeToPro: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,16 +41,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCredits(data.credits);
         setIsPro(data.is_pro);
       } else if (error) {
-        // If profile is missing (e.g. trigger delay), create one
-        console.warn("User profile not found, creating a new profile fallback...");
-        const { data: newProfile } = await supabase
-          .from("user_profiles")
-          .upsert({ id: userId, email: user?.email || "", credits: 5, is_pro: false })
-          .select()
-          .single();
-        if (newProfile) {
-          setCredits(newProfile.credits);
-          setIsPro(newProfile.is_pro);
+        // If profile is missing (e.g. trigger/sync delay), initialize it securely via server API
+        console.warn("User profile not found or read error. Initializing fallback...");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const res = await fetch("/api/profile/init", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`
+            }
+          });
+          const initData = await res.json();
+          if (res.ok && initData) {
+            setCredits(initData.credits);
+            setIsPro(initData.isPro);
+          }
         }
       }
     } catch (err) {
@@ -123,44 +127,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) console.error("Sign out failed:", error);
   };
 
-  const deductCredit = async () => {
-    if (isPro || !user) return;
-    const nextCredits = Math.max(0, credits - 1);
-    setCredits(nextCredits);
-    try {
-      await supabase
-        .from("user_profiles")
-        .update({ credits: nextCredits })
-        .eq("id", user.id);
-    } catch (err) {
-      console.error("Deduct credit failed:", err);
-    }
-  };
-
-  const addCredits = async (amount: number) => {
-    if (!user) return;
-    const nextCredits = credits + amount;
-    setCredits(nextCredits);
-    try {
-      await supabase
-        .from("user_profiles")
-        .update({ credits: nextCredits })
-        .eq("id", user.id);
-    } catch (err) {
-      console.error("Add credits failed:", err);
-    }
-  };
-
-  const upgradeToPro = async () => {
-    if (!user) return;
-    setIsPro(true);
-    try {
-      await supabase
-        .from("user_profiles")
-        .update({ is_pro: true })
-        .eq("id", user.id);
-    } catch (err) {
-      console.error("Upgrade to Pro failed:", err);
+  const refreshProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      await fetchProfile(session.user.id);
     }
   };
 
@@ -175,9 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signUp,
         loginWithOAuth,
         logout,
-        deductCredit,
-        addCredits,
-        upgradeToPro,
+        refreshProfile,
       }}
     >
       {children}

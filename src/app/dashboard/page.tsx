@@ -16,7 +16,7 @@ import { supabase } from "@/utils/supabase";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, credits, isPro, isLoading, deductCredit, addCredits, upgradeToPro, logout } = useAuth();
+  const { user, credits, isPro, isLoading, refreshProfile, logout } = useAuth();
 
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -225,9 +225,13 @@ export default function Dashboard() {
     setIsSaved(false);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token || ""}`
+        },
         body: JSON.stringify({ prompt, metadata, language, isProModel: isPro || isProModel }),
       });
 
@@ -242,10 +246,8 @@ export default function Dashboard() {
 
       setGeneratedCode(data.code);
 
-      // Deduct credit if not Pro
-      if (!isPro) {
-        deductCredit();
-      }
+      // Refresh profile to update remaining credits from server-side deduction
+      await refreshProfile();
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred");
     } finally {
@@ -273,9 +275,26 @@ export default function Dashboard() {
       return;
     }
 
-    // Deduct credit for run
+    // Deduct credit for run securely on the server
     if (!isPro) {
-      deductCredit();
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch("/api/profile/deduct", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session?.access_token || ""}`
+          }
+        });
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Failed to deduct credit for code execution.");
+        }
+        await refreshProfile();
+      } catch (err: any) {
+        setError(err.message || "Failed to verify credit balance.");
+        return;
+      }
     }
 
     const result = await runPython({
@@ -297,12 +316,8 @@ export default function Dashboard() {
     }
   };
 
-  const handlePaymentSuccess = (type: "credits" | "pro") => {
-    if (type === "pro") {
-      upgradeToPro();
-    } else {
-      addCredits(50);
-    }
+  const handlePaymentSuccess = async (type: "credits" | "pro") => {
+    await refreshProfile();
   };
 
   return (

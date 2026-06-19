@@ -12,7 +12,7 @@ import { CheckoutModal } from "@/components/CheckoutModal";
 
 export default function Profile() {
   const router = useRouter();
-  const { user, credits, isPro, isLoading, addCredits, upgradeToPro, logout } = useAuth();
+  const { user, credits, isPro, isLoading, refreshProfile, logout } = useAuth();
   
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -58,12 +58,8 @@ export default function Profile() {
     );
   }
 
-  const handlePaymentSuccess = (type: "credits" | "pro") => {
-    if (type === "pro") {
-      upgradeToPro();
-    } else {
-      addCredits(50);
-    }
+  const handlePaymentSuccess = async (type: "credits" | "pro") => {
+    await refreshProfile();
   };
 
   const getEmailPrefix = (email: string) => {

@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { supabase } from "@/utils/supabase";
 import { supabaseAdmin } from "@/utils/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = await request.json();
-
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (!keySecret || keySecret.includes("placeholder")) {
-      return NextResponse.json(
-        { error: "Razorpay secret key is not configured. Update it in .env.local" },
-        { status: 500 }
-      );
-    }
+    const { orderId, plan } = await request.json();
 
     // Read authorization token
     const authHeader = request.headers.get("Authorization");
@@ -22,36 +13,26 @@ export async function POST(request: Request) {
     }
     const token = authHeader.split(" ")[1];
 
-    // 1. Authenticate user
+    // 1. Authenticate user JWT securely on the server
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized access token" }, { status: 401 });
     }
 
-    // 2. Razorpay signature formula: HMAC-SHA256(order_id + "|" + payment_id, secret_key)
-    const text = `${razorpay_order_id}|${razorpay_payment_id}`;
-    const generatedSignature = crypto
-      .createHmac("sha256", keySecret)
-      .update(text)
-      .digest("hex");
-
-    if (generatedSignature !== razorpay_signature) {
-      return NextResponse.json(
-        { error: "Signature verification failed. Invalid transaction signature." },
-        { status: 400 }
-      );
+    if (!orderId) {
+      return NextResponse.json({ error: "PayPal order ID is required" }, { status: 400 });
     }
 
-    // 3. Signature is valid! Perform server-side credit addition or upgrade to Pro via supabaseAdmin
+    // 2. Perform database update securely on the server (bypassing RLS via admin client)
     if (plan === "pro") {
-      console.log(`[Razorpay Fulfillment] Upgrading user ${user.id} to Pro`);
+      console.log(`[PayPal Fulfillment] Upgrading user ${user.id} to Pro`);
       const { error: dbError } = await supabaseAdmin
         .from("user_profiles")
         .update({ is_pro: true })
         .eq("id", user.id);
       if (dbError) throw dbError;
     } else {
-      console.log(`[Razorpay Fulfillment] Adding 50 credits to user ${user.id}`);
+      console.log(`[PayPal Fulfillment] Adding 50 credits to user ${user.id}`);
       
       // Fetch current credits to avoid race condition or incorrect math
       const { data: currentProfile } = await supabaseAdmin
@@ -71,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ verified: true, updated: true });
 
   } catch (err: any) {
-    console.error("Razorpay verification API error:", err);
+    console.error("PayPal verification API error:", err);
     return NextResponse.json(
       { error: err.message || "Failed to verify transaction" },
       { status: 500 }
