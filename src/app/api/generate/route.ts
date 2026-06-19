@@ -2,6 +2,121 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/utils/supabase";
 import { supabaseAdmin } from "@/utils/supabaseAdmin";
 
+// Static linter for common VBA mistakes
+function lintVBACode(code: string): string[] {
+  const errors: string[] = [];
+  const lines = code.split("\n");
+
+  // Check Option Explicit
+  const hasOptionExplicit = lines.some(line => line.trim().toLowerCase().replace(/\s+/g, "") === "optionexplicit");
+  if (!hasOptionExplicit) {
+    errors.push("Missing 'Option Explicit' declaration at the top of the VBA module.");
+  }
+
+  let currentBlock: string | null = null;
+  let assignedVars = new Set<string>();
+  let declaredVars = new Set<string>();
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx].trim();
+    if (line.startsWith("'")) continue;
+
+    // Detect block start
+    const subMatch = line.match(/^(?:Private\s+|Public\s+)?(Sub|Function)\s+([a-zA-Z0-9_]+)/i);
+    if (subMatch) {
+      currentBlock = subMatch[2];
+      assignedVars = new Set<string>();
+      declaredVars = new Set<string>();
+      continue;
+    }
+
+    // Detect block end
+    if (line.match(/^End\s+(Sub|Function)/i)) {
+      currentBlock = null;
+      continue;
+    }
+
+    if (currentBlock) {
+      const statements = line.split(":");
+      for (const stmt of statements) {
+        const trimmedStmt = stmt.trim();
+        if (trimmedStmt.startsWith("'")) continue;
+
+        // Track variable declarations (Dim varName [As Type])
+        if (trimmedStmt.toLowerCase().startsWith("dim ")) {
+          const varsPart = trimmedStmt.substring(4);
+          const parts = varsPart.split(",");
+          for (const p of parts) {
+            const nameMatch = p.trim().match(/^([a-zA-Z0-9_]+)/);
+            if (nameMatch) {
+              declaredVars.add(nameMatch[1].toLowerCase());
+            }
+          }
+        }
+
+        // Track assignments (varName = expression or Set varName = expression)
+        const assignMatch = trimmedStmt.match(/^(?:Set\s+)?([a-zA-Z0-9_]+)\s*=/i);
+        if (assignMatch) {
+          assignedVars.add(assignMatch[1].toLowerCase());
+        }
+
+        // Track For loops assignments (For i = 2 To lastRow)
+        const forMatch = trimmedStmt.match(/^For\s+([a-zA-Z0-9_]+)\s*=/i);
+        if (forMatch) {
+          assignedVars.add(forMatch[1].toLowerCase());
+        }
+
+        // Track For Each loops (For Each cell In ws.Range(...))
+        const forEachMatch = trimmedStmt.match(/^For\s+Each\s+([a-zA-Z0-9_]+)\s+In/i);
+        if (forEachMatch) {
+          assignedVars.add(forEachMatch[1].toLowerCase());
+        }
+
+        // Check if Cells references use uninitialized variables
+        const cellsMatches = trimmedStmt.matchAll(/Cells\s*\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)/ig);
+        for (const match of cellsMatches) {
+          const rowVar = match[1].toLowerCase();
+          const colVar = match[2].toLowerCase();
+
+          if (isNaN(Number(rowVar)) && declaredVars.has(rowVar) && !assignedVars.has(rowVar)) {
+            errors.push(`Line ${idx + 1}: Variable '${match[1]}' is used in Cells() row reference before being assigned a value.`);
+          }
+          if (isNaN(Number(colVar)) && declaredVars.has(colVar) && !assignedVars.has(colVar)) {
+            errors.push(`Line ${idx + 1}: Variable '${match[2]}' is used in Cells() column reference before being assigned a value.`);
+          }
+        }
+
+        // Check if Range references use uninitialized variables
+        const rangeMatches = trimmedStmt.matchAll(/Range\s*\(([^)]+)\)/ig);
+        for (const match of rangeMatches) {
+          const rangeContent = match[1];
+          const varMatches = rangeContent.matchAll(/\b([a-zA-Z][a-zA-Z0-9_]*)\b/g);
+          for (const vMatch of varMatches) {
+            const vName = vMatch[1].toLowerCase();
+            const vbaKeywords = ["cells", "rows", "columns", "range", "activecell", "selection", "val", "trim", "sheets", "worksheets"];
+            if (vbaKeywords.includes(vName)) continue;
+
+            if (declaredVars.has(vName) && !assignedVars.has(vName)) {
+              errors.push(`Line ${idx + 1}: Variable '${vMatch[1]}' is used in Range() reference before being assigned a value.`);
+            }
+          }
+        }
+
+        // Check for double-counted path concatenation
+        if (trimmedStmt.match(/\.Path\s*&\s*["']\\["']\s*&\s*([a-zA-Z0-9_]+)/i)) {
+          const pathVar = trimmedStmt.match(/\.Path\s*&\s*["']\\["']\s*&\s*([a-zA-Z0-9_]+)/i)![1];
+          if (pathVar.toLowerCase().includes("file") || pathVar.toLowerCase().includes("path")) {
+            errors.push(`Line ${idx + 1}: Potential double-path path construction. Ensure '${pathVar}' contains only the filename and extension, not the full folder path.`);
+          }
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+
 export async function POST(req: Request) {
     const diagnosticLogs: string[] = [];
     const logDiag = (msg: string) => {
@@ -84,7 +199,8 @@ export async function POST(req: Request) {
  * MEMORY ARRAY PROCESSING FOR PERFORMANCE: For operations that loop through and modify cell values (e.g., trimming spaces, case conversions, phone cleaning) on more than 100 rows, load the sheet range into a 2D Variant array, perform calculations in memory, and write the array back to the worksheet in a single operation. Do not use multiple cell-by-cell loops across the entire sheet range. When writing values back to a single vertical column range, the array must be declared and sized as a 2D array (e.g., \`ReDim arr(1 To lastRow - 1, 1 To 1)\`) rather than a 1D array. Assigning a 1D array directly to a vertical range replicates the first element across all cells in the column, corrupting the data.
  * ROW DELETION VS FILTERING: When asked to 'filter out' or remove missing or empty rows from the primary dataset, you must physically delete the rows (looping backwards, e.g. \`For i = lastRow To 2 Step -1\`) rather than just applying \`AutoFilter\` (which only hides rows from screen view but leaves them in calculations and summaries).
  * COMPREHENSIVE AGGREGATIONS: Ensure all requested cohorts, groups, or tiers (e.g. Silver, Gold, Platinum) are fully represented and calculated in summaries and metrics sheet outputs. Do not omit any categories from summary arrays or calculations.
-  * SAFE SAVEAS & EXTENSION PARSING: When saving the processed workbook as "[filename]_processed.[ext]", dynamically find the position of the last period (using InStrRev) and insert "_processed" before the extension. Never append directly to the filename to avoid creating invalid file extensions. Use the declared workbook object (e.g., \`srcWorkbook.SaveAs\`) instead of \`ActiveWorkbook.SaveAs\`. Build the save path using \`srcWorkbook.Path\` (e.g., \`srcWorkbook.Path & "\\" & fileName & "_processed." & fileExtension\`) to ensure the file is saved in the original folder.
+ * SAFE SAVEAS & PATH RECONSTRUCTION: When saving the processed workbook, never reconstruct a file path by appending a parent folder directory to a variable that already contains a full path (which causes double-prepending like C:\folder\C:\folder\file_processed.xlsx). Instead, parse and split the selected file path (selectedFile) into separate variables first: the folder directory (e.g. using Left(selectedFile, InStrRev(selectedFile, "\"))), the base filename without the path, and the extension. Modify only the base filename, and recombine them exactly once at the final step. Build the save path using srcWorkbook.Path (e.g. srcWorkbook.Path & "\" & fileName & "_processed." & fileExtension) only if fileName has been successfully stripped of any directory prefixes.
+ * RANGE VARIABLES INITIALIZATION SAFETY: Every variable used inside a Range() or Cells() statement (such as lastRow or lastCol or targetColIdx) MUST be explicitly initialized and assigned a real, valid, positive integer value prior to its first reference. Do not allow references containing uninitialized variables (which default to 0 and crash Excel with a Runtime Error 1004).
  * LAST COLUMN RESOLUTION: Never use \`Columns.Count + 1\` or \`ws.Columns.Count\` to locate the next empty column. \`Columns.Count\` returns the total column capacity of the worksheet (e.g., 16384), and adding 1 to it will exceed Excel's column bounds and throw a Runtime Error 1004. Always use the dynamically calculated last used column index (e.g., \`lastCol + 1\`).
  * FIND METHOD SAFE GUARD: When using \$.Find("*")\$ to calculate \`lastRow\` or \`lastColumn\`, verify that the search does not return \`Nothing\` before accessing the \$.Row\$ or \$.Column\$ property to prevent crashes on empty sheets.
  * DIVISION-BY-ZERO SAFETY: Always check if the denominator or counts (e.g., averages, ratios) are greater than zero before performing arithmetic division.
@@ -92,6 +208,7 @@ export async function POST(req: Request) {
  * PHONE STANDARDIZATION SAFETY: Never use the simple \`Val()\` function on phone numbers as it deletes leading zeros and truncates numbers containing formatting characters (such as parentheses, hyphens, or spaces). You must clean phone numbers by converting scientific notation (if any) and then iterating through each character of the phone string to extract and keep only digits, preserving leading zeros.
  * DATA RANGE ROW HIGHLIGHTING: When highlighting row ranges (e.g. for customer tiers), color only the row range from column 1 to \`lastCol\` (e.g. \`ws.Range(ws.Cells(row_idx, 1), ws.Cells(row_idx, lastCol)).Interior.Color = RGB(...)\`) rather than the entire \`ws.Rows(row_idx)\` to prevent file bloating and performance lag.
  * NO HARDCODED DATA COLUMNS: Never use hardcoded column index numbers (e.g., column 2 for name) for variables that exist in the dataset; always use the dynamically resolved column variable index.
+ * DYNAMIC BOUNDS UPDATES: Any operation that alters row or column counts (such as deleting blank rows, stripping duplicates, or appending data) must trigger a recalculation of dynamic bounds (e.g., lastRow = ...) immediately after the operation, before any subsequent loops or ranges are executed.
  * FINAL CODE REQUIREMENTS: The generated VBA must compile under 'Option Explicit'. It must declare all variables with explicit types (no untyped variants unless necessary), including all loop control variables (like \`i\`, \`j\`, \`k\`, \`r\`, \`c\`) using \`Dim i As Long\`, etc. It must open a File Dialog picker letting the user select their data file dynamically, open it, perform operations, save, close the workbook, and restore Excel application settings. Handle errors and include inline comments.`;
         } else {
             languageRules = `IMPORTANT RULES FOR PYTHON (PANDAS & OPENPYXL):
@@ -135,7 +252,12 @@ Your job is to generate COMPLETE, PRODUCTION-READY code based on:
 
 ${languageRules}
 
-Provide ONLY the clean code block without markdown tags. Do not write introductory or concluding conversational text. Include comments indicating the task checklist status.`;
+Provide ONLY the clean code block without markdown tags. Do not write introductory or concluding conversational text. Include comments indicating the task checklist status.
+
+SELF-REVIEW CHECKLIST (You MUST run this review internally on the code you generate before outputting it):
+1. Range/Cells Variable Audit: Is every variable used in a Range() or Cells() call (e.g., lastRow, lastCol, targetColIdx) explicitly assigned a real, valid value earlier in the code? Verify that no variable defaults to 0 or is used before its assignment statement.
+2. Path Multiplication Check: If the code manipulates a file path or filename, are the folder path, base file name, and file extension parsed and handled as separate variables? Verify that the folder path is not double-appended or duplicated.
+3. Dynamic Loop Bounds Check: Does every loop bound (e.g., lastRow, lastCol) get re-computed after any operation that deletes, inserts, or changes row/column counts (like deleting missing rows or removing duplicates), rather than using a stale value?`;
 
         // 3. Connect to live Gemini and Nvidia APIs if keys are present in environment
         let geminiApiKey = process.env.GEMINI_API_KEY;
@@ -326,6 +448,79 @@ Provide ONLY the clean code block without markdown tags. Do not write introducto
                             const matches = code.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
                             if (matches && matches[1]) {
                                 code = matches[1];
+                            }
+                        }
+
+                        // --- SELF-HEALING / VERIFICATION PASS ---
+                        if (language === "vba") {
+                            const lintErrors = lintVBACode(code);
+                            if (lintErrors.length > 0) {
+                                logDiag(`[Self-Healing] Detected ${lintErrors.length} VBA lint errors. Running self-correction pass...`);
+                                logDiag(`[Self-Healing] Errors found:\n${lintErrors.map(e => ` - ${e}`).join("\n")}`);
+
+                                const correctionPrompt = `The following generated VBA code contains validation/lint errors:
+\n${lintErrors.map(e => `- ${e}`).join("\n")}
+\nHere is the generated code:\n\n${code}\n\nPlease correct these errors. Return ONLY the corrected, clean VBA code block without markdown tags or conversational text. Ensure all variables used in range references are initialized and that path combinations do not duplicate folder paths.`;
+
+                                let correctionBody = {};
+                                if (attempt.provider === "nvidia") {
+                                    correctionBody = {
+                                        model: attempt.model,
+                                        messages: [
+                                            {
+                                                role: "user",
+                                                content: correctionPrompt
+                                            }
+                                        ],
+                                        temperature: 0.1,
+                                        max_tokens: 4096,
+                                    };
+                                } else {
+                                    correctionBody = {
+                                        contents: [
+                                            {
+                                                role: "user",
+                                                parts: [{ text: correctionPrompt }]
+                                            }
+                                        ],
+                                        generationConfig: { temperature: 0.1 }
+                                    };
+                                }
+
+                                try {
+                                    const correctionRes = await fetch(apiUrl, {
+                                        method: "POST",
+                                        headers,
+                                        body: JSON.stringify(correctionBody)
+                                    });
+
+                                    if (correctionRes.ok) {
+                                        const corrData = await correctionRes.json();
+                                        let correctedCode = "";
+                                        if (attempt.provider === "nvidia") {
+                                            correctedCode = corrData.choices?.[0]?.message?.content || "";
+                                        } else {
+                                            correctedCode = corrData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                                        }
+
+                                        if (correctedCode.includes("```")) {
+                                            const corrMatches = correctedCode.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
+                                            if (corrMatches && corrMatches[1]) {
+                                                correctedCode = corrMatches[1];
+                                            }
+                                        }
+
+                                        if (correctedCode.trim()) {
+                                            const secondaryLint = lintVBACode(correctedCode);
+                                            logDiag(`[Self-Healing] Self-correction completed. Secondary lint errors remaining: ${secondaryLint.length}`);
+                                            code = correctedCode;
+                                        }
+                                    }
+                                } catch (corrErr: any) {
+                                    warnDiag(`[Self-Healing] Failed during self-correction fetch:`, corrErr?.message || String(corrErr));
+                                }
+                            } else {
+                                logDiag("[Self-Healing] VBA code successfully passed static linter checks!");
                             }
                         }
 
